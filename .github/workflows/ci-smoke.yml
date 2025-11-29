@@ -1,0 +1,54 @@
+name: CI + Smoke Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (if available)
+        run: npm run lint --if-present
+
+      - name: Test (if available)
+        run: npm run test --if-present
+
+      - name: Build app
+        run: npm run build
+
+      - name: Start app in background
+        run: |
+          npm run start &
+          echo "Waiting for app to boot..."
+          # Retry loop to wait for server
+          for i in {1..30}; do
+            if curl -s http://localhost:3000/api/ledger > /dev/null 2>&1; then
+              echo "Server is ready!"
+              break
+            fi
+            echo "Attempt $i: Server not ready, waiting..."
+            sleep 2
+          done
+
+      - name: Smoke test ledger endpoint
+        run: |
+          curl --fail http://localhost:3000/api/ledger || (echo "Smoke test failed" && exit 1)
