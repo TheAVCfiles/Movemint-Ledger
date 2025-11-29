@@ -1,0 +1,317 @@
+import Head from 'next/head';
+import { useState } from 'react';
+
+interface LedgerEntry {
+  id: string;
+  timestamp: string;
+  action: string;
+  details: string;
+}
+
+export default function MoveMint() {
+  const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+
+  const logAction = async (action: string, details: string) => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/ledger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, details }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setLedgerEntries((prev) => [data.entry, ...prev]);
+        setMessage('Action logged successfully!');
+      }
+    } catch (error) {
+      console.error('Ledger API error:', error);
+      setMessage('Error logging action');
+    }
+    setLoading(false);
+    setTimeout(() => setMessage(''), 3000);
+  };
+
+  return (
+    <>
+      <Head>
+        <title>MoveMint™ | Stageport — Professional Studio Management</title>
+        <meta name="description" content="MoveMint™ by Stageport: The ultimate ledger and management solution for dance studios, performing arts centers, and creative education facilities." />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="icon" href="/favicon.ico" />
+      </Head>
+
+      <main className="container">
+        {/* Hero Section */}
+        <header className="hero">
+          <nav className="nav">
+            <div className="logo">
+              <span className="logo-icon">🌿</span>
+              <span className="logo-text">MoveMint™</span>
+            </div>
+            <div className="nav-links">
+              <a href="#features">Features</a>
+              <a href="#products">Products</a>
+              <a href="#demo">Demo</a>
+              <a href="#contact" className="btn btn-nav">Get Started</a>
+            </div>
+          </nav>
+          
+          <div className="hero-content">
+            <h1 className="hero-title">
+              Transform Your Studio with <span className="gradient-text">MoveMint™</span>
+            </h1>
+            <p className="hero-subtitle">
+              The complete ledger and management platform for dance studios and performing arts centers. 
+              Track attendance, manage schedules, and streamline your operations with real-time insights.
+            </p>
+            <div className="hero-cta">
+              <button className="btn btn-primary" onClick={() => logAction('CTA_CLICK', 'Start Free Trial')}>
+                Start Free Trial
+              </button>
+              <button className="btn btn-secondary" onClick={() => logAction('CTA_CLICK', 'Watch Demo')}>
+                Watch Demo
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* Features Section */}
+        <section id="features" className="section features">
+          <h2 className="section-title">Why Studio Owners Choose MoveMint™</h2>
+          <div className="features-grid">
+            <div className="feature-card">
+              <div className="feature-icon">📊</div>
+              <h3>Real-Time Ledger</h3>
+              <p>Track every class, student, and transaction with our powerful ledger system. Get instant insights into your studio&apos;s performance.</p>
+            </div>
+            <div className="feature-card">
+              <div className="feature-icon">📅</div>
+              <h3>Smart Scheduling</h3>
+              <p>Effortlessly manage class schedules, instructor availability, and room bookings in one intuitive interface.</p>
+            </div>
+            <div className="feature-card">
+              <div className="feature-icon">💳</div>
+              <h3>Payment Processing</h3>
+              <p>Accept payments, manage subscriptions, and track billing with seamless integration to popular payment providers.</p>
+            </div>
+            <div className="feature-card">
+              <div className="feature-icon">👥</div>
+              <h3>Student Management</h3>
+              <p>Maintain comprehensive student profiles, attendance records, and progress tracking all in one place.</p>
+            </div>
+            <div className="feature-card">
+              <div className="feature-icon">📱</div>
+              <h3>Mobile Ready</h3>
+              <p>Access your studio dashboard from anywhere. Our responsive design works perfectly on all devices.</p>
+            </div>
+            <div className="feature-card">
+              <div className="feature-icon">🔒</div>
+              <h3>Secure & Reliable</h3>
+              <p>Enterprise-grade security keeps your data safe. 99.9% uptime guarantee ensures you&apos;re always connected.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* Products Section */}
+        <section id="products" className="section products">
+          <h2 className="section-title">Stageport Product Suite</h2>
+          <div className="products-grid">
+            <div className="product-card featured">
+              <div className="product-badge">Most Popular</div>
+              <h3>MoveMint™ Pro</h3>
+              <p className="product-price">$99<span>/month</span></p>
+              <ul className="product-features">
+                <li>✓ Unlimited students</li>
+                <li>✓ Advanced ledger analytics</li>
+                <li>✓ Multi-location support</li>
+                <li>✓ Custom branding</li>
+                <li>✓ Priority support</li>
+                <li>✓ API access</li>
+              </ul>
+              <button className="btn btn-primary" onClick={() => logAction('PRODUCT_CLICK', 'MoveMint Pro')}>
+                Choose Pro
+              </button>
+            </div>
+            <div className="product-card">
+              <h3>MoveMint™ Starter</h3>
+              <p className="product-price">$49<span>/month</span></p>
+              <ul className="product-features">
+                <li>✓ Up to 100 students</li>
+                <li>✓ Basic ledger tracking</li>
+                <li>✓ Single location</li>
+                <li>✓ Email support</li>
+                <li>✓ Standard reports</li>
+              </ul>
+              <button className="btn btn-secondary" onClick={() => logAction('PRODUCT_CLICK', 'MoveMint Starter')}>
+                Get Started
+              </button>
+            </div>
+            <div className="product-card">
+              <h3>Stageport Enterprise</h3>
+              <p className="product-price">Custom</p>
+              <ul className="product-features">
+                <li>✓ Unlimited everything</li>
+                <li>✓ White-label solution</li>
+                <li>✓ Dedicated account manager</li>
+                <li>✓ Custom integrations</li>
+                <li>✓ SLA guarantee</li>
+                <li>✓ On-premise option</li>
+              </ul>
+              <button className="btn btn-outline" onClick={() => logAction('PRODUCT_CLICK', 'Stageport Enterprise')}>
+                Contact Sales
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* Demo Section */}
+        <section id="demo" className="section demo">
+          <h2 className="section-title">Live Ledger Demo</h2>
+          <p className="section-subtitle">Experience the power of MoveMint™ ledger logging in real-time</p>
+          
+          <div className="demo-container">
+            <div className="demo-actions">
+              <h4>Quick Actions</h4>
+              <div className="demo-buttons">
+                <button 
+                  className="btn btn-demo" 
+                  onClick={() => logAction('ATTENDANCE', 'Student checked in for Ballet 101')}
+                  disabled={loading}
+                >
+                  📋 Log Attendance
+                </button>
+                <button 
+                  className="btn btn-demo" 
+                  onClick={() => logAction('PAYMENT', 'Monthly subscription payment received')}
+                  disabled={loading}
+                >
+                  💰 Record Payment
+                </button>
+                <button 
+                  className="btn btn-demo" 
+                  onClick={() => logAction('SCHEDULE', 'New class added: Hip Hop Fundamentals')}
+                  disabled={loading}
+                >
+                  📅 Add Class
+                </button>
+                <button 
+                  className="btn btn-demo" 
+                  onClick={() => logAction('STUDENT', 'New student registration completed')}
+                  disabled={loading}
+                >
+                  👤 Register Student
+                </button>
+              </div>
+              {message && <div className="demo-message">{message}</div>}
+            </div>
+            
+            <div className="ledger-display">
+              <h4>📜 Ledger Activity Log</h4>
+              <div className="ledger-entries">
+                {ledgerEntries.length === 0 ? (
+                  <p className="ledger-empty">Click an action above to see live ledger entries</p>
+                ) : (
+                  ledgerEntries.map((entry) => (
+                    <div key={entry.id} className="ledger-entry">
+                      <span className="ledger-time">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                      <span className="ledger-action">{entry.action}</span>
+                      <span className="ledger-details">{entry.details}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Testimonials Section */}
+        <section className="section testimonials">
+          <h2 className="section-title">Trusted by Studio Owners Worldwide</h2>
+          <div className="testimonials-grid">
+            <div className="testimonial-card">
+              <p>&quot;MoveMint has completely transformed how we manage our dance studio. The ledger feature alone saves us hours every week.&quot;</p>
+              <div className="testimonial-author">
+                <strong>Sarah Johnson</strong>
+                <span>Owner, Rhythm & Grace Dance Academy</span>
+              </div>
+            </div>
+            <div className="testimonial-card">
+              <p>&quot;Finally, a management system that understands the unique needs of performing arts centers. The Stageport team is incredible.&quot;</p>
+              <div className="testimonial-author">
+                <strong>Michael Chen</strong>
+                <span>Director, Pacific Arts Center</span>
+              </div>
+            </div>
+            <div className="testimonial-card">
+              <p>&quot;From attendance tracking to payment processing, everything just works. Our instructors and students love it.&quot;</p>
+              <div className="testimonial-author">
+                <strong>Emily Rodriguez</strong>
+                <span>Founder, Urban Movement Studio</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* CTA Section */}
+        <section id="contact" className="section cta">
+          <div className="cta-content">
+            <h2>Ready to Transform Your Studio?</h2>
+            <p>Join thousands of studio owners who trust MoveMint™ for their daily operations.</p>
+            <div className="cta-buttons">
+              <button className="btn btn-primary btn-large" onClick={() => logAction('CTA_CLICK', 'Final CTA - Free Trial')}>
+                Start Your Free 14-Day Trial
+              </button>
+              <button className="btn btn-outline btn-large" onClick={() => logAction('CTA_CLICK', 'Final CTA - Schedule Demo')}>
+                Schedule a Demo
+              </button>
+            </div>
+            <p className="cta-note">No credit card required • Free setup assistance • Cancel anytime</p>
+          </div>
+        </section>
+
+        {/* Footer */}
+        <footer className="footer">
+          <div className="footer-content">
+            <div className="footer-brand">
+              <div className="logo">
+                <span className="logo-icon">🌿</span>
+                <span className="logo-text">MoveMint™</span>
+              </div>
+              <p>A Stageport Product</p>
+              <p className="footer-tagline">Empowering creative education, one studio at a time.</p>
+            </div>
+            <div className="footer-links">
+              <div className="footer-column">
+                <h4>Product</h4>
+                <a href="#features">Features</a>
+                <a href="#products">Pricing</a>
+                <a href="#demo">Demo</a>
+                <a href="#">API Docs</a>
+              </div>
+              <div className="footer-column">
+                <h4>Company</h4>
+                <a href="#">About Stageport</a>
+                <a href="#">Careers</a>
+                <a href="#">Blog</a>
+                <a href="#">Press</a>
+              </div>
+              <div className="footer-column">
+                <h4>Support</h4>
+                <a href="#">Help Center</a>
+                <a href="#">Contact Us</a>
+                <a href="#">System Status</a>
+                <a href="#">Privacy Policy</a>
+              </div>
+            </div>
+          </div>
+          <div className="footer-bottom">
+            <p>© 2025 Stageport Technologies. All rights reserved. MoveMint™ is a trademark of Stageport Technologies.</p>
+          </div>
+        </footer>
+      </main>
+    </>
+  );
+}
