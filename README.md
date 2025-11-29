@@ -8,6 +8,8 @@ Movemint-Ledger provides transparent, reliable, and modular transaction tracking
 
 ## Getting Started
 
+> **Note**: The application scaffold is currently under development. See [OPS_PROJECT.md](./OPS_PROJECT.md#roadmap) for the project roadmap.
+
 ### Prerequisites
 
 - Node.js 22+
