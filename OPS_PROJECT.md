@@ -28,8 +28,8 @@ This project encompasses:
 
 ## Key Outcomes
 
-- [ ] Fully operational ledger API at `/api/ledger`
-- [ ] Landing page accessible at `/movemint`
+- [ ] Fully operational ledger API at the `/api/ledger` route (relative to app base URL)
+- [ ] Landing page accessible at the `/movemint` route (relative to app base URL)
 - [ ] CI pipeline that runs tests, linting, and smoke tests on every push/PR
 - [ ] Standardized issue and PR templates for consistent contributions
 - [ ] Clear documentation for onboarding developers and collaborators

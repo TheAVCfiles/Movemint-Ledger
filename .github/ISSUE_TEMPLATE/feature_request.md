@@ -22,9 +22,11 @@ labels: ["enhancement"]
 
 ## Acceptance Criteria
 
-- [ ] ...
-- [ ] ...
-- [ ] ...
+<!-- Define clear, testable criteria for when this feature is complete. Example:
+- [ ] User can submit a new ledger entry via the API
+- [ ] API returns appropriate success/error responses
+- [ ] Feature is covered by tests
+-->
 
 ## Additional Context
 
