@@ -115,7 +115,7 @@
 ### Immediate (Sprint 1)
 
 1. **Set Up Next.js Application**
-   - Initialize Next.js 14+ with App Router
+   - Initialize Next.js 16+ with App Router
    - Configure TypeScript for type safety
    - Set up ESLint and Prettier
 
