@@ -35,15 +35,26 @@ npm start
 ## 📁 Project Structure
 
 ```
-/pages
-  |_ _app.tsx          # App component with global styles
-  |_ index.tsx         # Root page (redirects to /movemint)
-  |_ movemint.tsx      # Main MoveMint landing page
+/app
+  /movemint
+    page.tsx           # MoveMint landing page (server component)
+    demo.tsx           # Live ledger demo (client component)
   /api
-    |_ ledger.ts       # Ledger API endpoint
+    /ledger
+      route.ts         # Ledger API endpoint (App Router)
+  layout.tsx           # Root layout with metadata
+  globals.css          # Global styles
+  page.tsx             # Root redirect to /movemint
 
 /styles
-  |_ movemint.css      # Custom CSS styling
+  theme.css            # StagePort + MoveMint theme tokens
+  movemint.css         # MoveMint page styles
+
+/public
+  /assets
+    /branding
+      logo-stageport.svg
+      logo-movemint.svg
 ```
 
 ## 🔥 Features
@@ -115,9 +126,9 @@ The `.next` folder contains the production build.
 
 ## 🛠️ Technologies
 
-- **Framework**: Next.js 14
+- **Framework**: Next.js 14 (App Router)
 - **Language**: TypeScript
-- **Styling**: Custom CSS with CSS Variables
+- **Styling**: Custom CSS with CSS Variables + Theme Tokens
 - **Deployment**: Vercel
 
 ## 📄 License

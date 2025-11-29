@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 50" fill="none">
+  <defs>
+    <linearGradient id="stageportGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#ec4899"/>
+    </linearGradient>
+  </defs>
+  <!-- Stage icon -->
+  <rect x="5" y="15" width="30" height="20" rx="3" fill="url(#stageportGradient)"/>
+  <rect x="10" y="10" width="20" height="5" rx="2" fill="#818cf8"/>
+  <!-- Text -->
+  <text x="45" y="32" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="700" fill="#0f172a">
+    Stage<tspan fill="url(#stageportGradient)">port</tspan>
+  </text>
+</svg>
