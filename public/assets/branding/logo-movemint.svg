@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 50" fill="none">
+  <defs>
+    <linearGradient id="movemintGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+  </defs>
+  <!-- Leaf icon -->
+  <path d="M15 35 C15 20 25 10 40 10 C35 20 35 30 25 35 C30 25 30 20 35 15 C25 20 20 28 20 35 Z" fill="url(#movemintGradient)"/>
+  <!-- Text -->
+  <text x="50" y="32" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="700" fill="#0f172a">
+    Move<tspan fill="url(#movemintGradient)">Mint</tspan><tspan font-size="12" baseline-shift="super">™</tspan>
+  </text>
+</svg>
