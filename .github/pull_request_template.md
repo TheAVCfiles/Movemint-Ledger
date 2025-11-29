@@ -25,9 +25,16 @@ Expected:
 
 - 
 
+## Operator Notes
+
+<!-- Any deployment, config, or rollback considerations? -->
+
+- 
+
 ## Checklist
 
 - [ ] CI passes (tests + smoke)
 - [ ] No direct edits to `main`
 - [ ] Any env / config changes documented
 - [ ] Screenshots or logs added if useful
+- [ ] Reviewed by at least one team member
