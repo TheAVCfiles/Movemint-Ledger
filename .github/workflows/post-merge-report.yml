@@ -159,9 +159,9 @@ jobs:
             HAS_GOVERNANCE_CHANGES=true
             REPORT+="#### ⚠️  Ledger Changes (${{ steps.analyze-changes.outputs.ledger_count }} file(s))\n\n"
             REPORT+="Critical ledger code was modified:\n"
-            cat /tmp/ledger_files.txt | grep -v '^$' | while read file; do
-              REPORT+="- \`$file\`\n"
-            done
+            while IFS= read -r file; do
+              [ -n "$file" ] && REPORT+="- \`$file\`\n"
+            done < <(grep -v '^$' /tmp/ledger_files.txt)
             REPORT+="\n**Governance Impact**: Ledger changes affect data integrity and must be carefully audited.\n\n"
           fi
           
@@ -169,9 +169,9 @@ jobs:
             HAS_GOVERNANCE_CHANGES=true
             REPORT+="#### 📋 Schema Changes (${{ steps.analyze-changes.outputs.schema_count }} file(s))\n\n"
             REPORT+="Database schema or structure was modified:\n"
-            cat /tmp/schema_files.txt | grep -v '^$' | while read file; do
-              REPORT+="- \`$file\`\n"
-            done
+            while IFS= read -r file; do
+              [ -n "$file" ] && REPORT+="- \`$file\`\n"
+            done < <(grep -v '^$' /tmp/schema_files.txt)
             REPORT+="\n**Governance Impact**: Schema changes may require migration coordination.\n\n"
           fi
           
@@ -179,9 +179,9 @@ jobs:
             HAS_GOVERNANCE_CHANGES=true
             REPORT+="#### 🔧 Workflow/CI Changes (${{ steps.analyze-changes.outputs.workflow_count }} file(s))\n\n"
             REPORT+="CI/CD workflows were modified:\n"
-            cat /tmp/workflow_files.txt | grep -v '^$' | while read file; do
-              REPORT+="- \`$file\`\n"
-            done
+            while IFS= read -r file; do
+              [ -n "$file" ] && REPORT+="- \`$file\`\n"
+            done < <(grep -v '^$' /tmp/workflow_files.txt)
             REPORT+="\n**Governance Impact**: Workflow changes affect build, test, and deployment processes.\n\n"
           fi
           
@@ -189,9 +189,9 @@ jobs:
             HAS_GOVERNANCE_CHANGES=true
             REPORT+="#### ⚙️  Configuration Changes (${{ steps.analyze-changes.outputs.config_count }} file(s))\n\n"
             REPORT+="Configuration files were modified:\n"
-            cat /tmp/config_files.txt | grep -v '^$' | while read file; do
-              REPORT+="- \`$file\`\n"
-            done
+            while IFS= read -r file; do
+              [ -n "$file" ] && REPORT+="- \`$file\`\n"
+            done < <(grep -v '^$' /tmp/config_files.txt)
             REPORT+="\n**Governance Impact**: Configuration changes affect application behavior.\n\n"
           fi
           

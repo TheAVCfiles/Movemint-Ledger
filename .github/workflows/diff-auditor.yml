@@ -49,33 +49,33 @@ jobs:
           
           if [ -n "$LEDGER_CHANGES" ]; then
             SUMMARY+="- ⚠️  **Ledger/API Changes Detected**\n"
-            echo "$LEDGER_CHANGES" | while read file; do
-              SUMMARY+="  - \`$file\`\n"
-            done
+            while IFS= read -r file; do
+              [ -n "$file" ] && SUMMARY+="  - \`$file\`\n"
+            done <<< "$LEDGER_CHANGES"
             SUMMARY+="  - *Governance Note*: Ledger changes require careful review for data integrity\n"
           fi
           
           if [ -n "$WORKFLOW_CHANGES" ]; then
             SUMMARY+="- 🔧 **Workflow/CI Changes Detected**\n"
-            echo "$WORKFLOW_CHANGES" | while read file; do
-              SUMMARY+="  - \`$file\`\n"
-            done
+            while IFS= read -r file; do
+              [ -n "$file" ] && SUMMARY+="  - \`$file\`\n"
+            done <<< "$WORKFLOW_CHANGES"
             SUMMARY+="  - *Governance Note*: CI changes affect build and deployment processes\n"
           fi
           
           if [ -n "$SCHEMA_CHANGES" ]; then
             SUMMARY+="- 📋 **Schema Changes Detected**\n"
-            echo "$SCHEMA_CHANGES" | while read file; do
-              SUMMARY+="  - \`$file\`\n"
-            done
+            while IFS= read -r file; do
+              [ -n "$file" ] && SUMMARY+="  - \`$file\`\n"
+            done <<< "$SCHEMA_CHANGES"
             SUMMARY+="  - *Governance Note*: Schema changes may require migration planning\n"
           fi
           
           if [ -n "$CONFIG_CHANGES" ]; then
             SUMMARY+="- ⚙️  **Configuration Changes Detected**\n"
-            echo "$CONFIG_CHANGES" | while read file; do
-              SUMMARY+="  - \`$file\`\n"
-            done
+            while IFS= read -r file; do
+              [ -n "$file" ] && SUMMARY+="  - \`$file\`\n"
+            done <<< "$CONFIG_CHANGES"
             SUMMARY+="  - *Governance Note*: Configuration changes affect application behavior\n"
           fi
           

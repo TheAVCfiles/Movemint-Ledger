@@ -72,13 +72,13 @@ jobs:
             REPORT+="### ⚠️  **HIGH COUPLING DETECTED**\n\n"
             REPORT+="This PR modifies both **UI/Frontend** and **Ledger** layers simultaneously.\n\n"
             REPORT+="**Ledger Files** ($LEDGER_COUNT):\n"
-            echo "$LEDGER_FILES" | grep -v '^$' | while read file; do
-              REPORT+="- \`$file\`\n"
-            done
+            while IFS= read -r file; do
+              [ -n "$file" ] && REPORT+="- \`$file\`\n"
+            done <<< "$(echo "$LEDGER_FILES" | grep -v '^$')"
             REPORT+="\n**UI Files** ($UI_COUNT):\n"
-            echo "$UI_FILES" | grep -v '^$' | while read file; do
-              REPORT+="- \`$file\`\n"
-            done
+            while IFS= read -r file; do
+              [ -n "$file" ] && REPORT+="- \`$file\`\n"
+            done <<< "$(echo "$UI_FILES" | grep -v '^$')"
             REPORT+="\n**⚠️  Coupling Concern**: Changes that span from UI to ledger indicate potential tight coupling.\n"
             REPORT+="**💡 Recommendation**: Consider whether these changes can be separated into:\n"
             REPORT+="1. A backend/ledger PR (API contract changes)\n"
@@ -124,9 +124,9 @@ jobs:
           # Configuration drift
           if [ "$CONFIG_COUNT" -gt 0 ]; then
             REPORT+="### ⚙️  **Configuration Changes**\n\n"
-            echo "$CONFIG_FILES" | grep -v '^$' | while read file; do
-              REPORT+="- \`$file\`\n"
-            done
+            while IFS= read -r file; do
+              [ -n "$file" ] && REPORT+="- \`$file\`\n"
+            done <<< "$(echo "$CONFIG_FILES" | grep -v '^$')"
             REPORT+="\n**Note**: Configuration changes affect application behavior across all environments.\n\n"
           fi
           
