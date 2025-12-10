@@ -14,7 +14,7 @@ MoveMint Ledger is a Next.js application that provides a RESTful API for managin
 
 ### Prerequisites
 
-- Node.js 22 or higher
+- Node.js 18.17 or higher
 - npm
 
 ### Installation

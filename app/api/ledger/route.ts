@@ -16,7 +16,7 @@ const ledgerEntries: LedgerEntry[] = [];
 
 // Helper function to generate unique ID
 function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
 }
 
 // GET handler - returns all ledger entries sorted by timestamp
