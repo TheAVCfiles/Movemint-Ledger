@@ -30,26 +30,33 @@ jobs:
           echo "$CHANGED_FILES"
           echo ""
 
+          # Check if there are no changed files
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "✔ No files changed in this PR."
+            echo "🛡 Documentation enforcement passed."
+            exit 0
+          fi
+
           # Check if ledger or API code changed
           LEDGER_CHANGED=false
           API_CHANGED=false
           DOCS_CHANGED=false
 
           while IFS= read -r file; do
-            # Check for ledger changes (src/ledger, lib/ledger, ledger/)
-            if [[ "$file" =~ (^|/)ledger/ ]] || [[ "$file" =~ src/ledger/ ]] || [[ "$file" =~ lib/ledger/ ]]; then
+            # Check for ledger changes (ledger/ in any path, or src/ledger, lib/ledger)
+            if [[ "$file" =~ ledger/ ]] || [[ "$file" =~ src/ledger ]] || [[ "$file" =~ lib/ledger ]]; then
               LEDGER_CHANGED=true
               echo "Detected ledger change: $file"
             fi
 
-            # Check for API changes (api/, src/api/)
-            if [[ "$file" =~ (^|/)api/ ]] || [[ "$file" =~ src/api/ ]]; then
+            # Check for API changes (api/ in any path, or src/api)
+            if [[ "$file" =~ api/ ]] || [[ "$file" =~ src/api ]]; then
               API_CHANGED=true
               echo "Detected API change: $file"
             fi
 
             # Check for documentation changes (.md files, docs/)
-            if [[ "$file" =~ \.md$ ]] || [[ "$file" =~ (^|/)docs/ ]] || [[ "$file" =~ (^|/)documentation/ ]]; then
+            if [[ "$file" =~ \.md$ ]] || [[ "$file" =~ docs/ ]] || [[ "$file" =~ documentation/ ]]; then
               DOCS_CHANGED=true
               echo "Detected documentation change: $file"
             fi

@@ -15,7 +15,7 @@ jobs:
           echo "🔍 Checking for required domain labels..."
 
           # Get PR labels from GitHub API
-          LABELS=$(gh api /repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }} --jq '.labels[].name' | tr '\n' ' ')
+          LABELS=$(gh api /repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }} --jq '.labels[]?.name // empty' | tr '\n' ' ')
 
           echo "Current labels: $LABELS"
 
