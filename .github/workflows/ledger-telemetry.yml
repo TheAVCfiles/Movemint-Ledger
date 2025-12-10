@@ -125,8 +125,8 @@ jobs:
 
             | Metric | Value | Threshold | Status |
             |--------|-------|-----------|--------|
-            | Replay Duration | ${{ steps.replay.outputs.duration }}ms | 200ms | ${{ steps.replay.outputs.duration > 200 && '⚠️ Advisory' || '✅ OK' }} |
-            | Entry Count | ${{ steps.replay.outputs.entry_count }} | 1000 entries | ${{ steps.replay.outputs.entry_count > 1000 && '⚠️ Advisory' || '✅ OK' }} |
+            | Replay Duration | ${{ steps.replay.outputs.duration }}ms | 200ms | See Health Status |
+            | Entry Count | ${{ steps.replay.outputs.entry_count }} | 1000 entries | See Health Status |
             | **Overall Health** | | | **${{ steps.replay.outputs.health_status }}** |
 
             ${{ steps.replay.outputs.warnings != '' && format('### ⚠️ Advisory Warnings\n\n{0}\n\n', steps.replay.outputs.warnings) || '' }}
