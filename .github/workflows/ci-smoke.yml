@@ -36,7 +36,6 @@ jobs:
         run: |
           npm run start > app.log 2>&1 &
           APP_PID=$!
-          echo $APP_PID > app.pid
           echo "App started with PID: $APP_PID"
           echo "Waiting for app to boot..."
           sleep 20
@@ -46,6 +45,6 @@ jobs:
           if ! curl --fail http://localhost:3000/api/ledger; then
             echo "=== Smoke test failed ==="
             echo "=== Application logs ==="
-            cat app.log
+            cat app.log 2>/dev/null || echo "No application logs available"
             exit 1
           fi
