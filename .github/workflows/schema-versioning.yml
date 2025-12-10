@@ -1,0 +1,183 @@
+name: Schema Versioning
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  schema-version-check:
+    name: Check Schema Changes and Versioning
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed-files
+        run: |
+          echo "Fetching changed files in this PR..."
+          git fetch origin ${{ github.base_ref }}
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          echo "$CHANGED_FILES"
+          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Detect schema changes
+        id: schema-check
+        run: |
+          CHANGED_FILES="${{ steps.changed-files.outputs.changed_files }}"
+          SCHEMA_CHANGED=false
+          SCHEMA_FILES=""
+          
+          echo "Checking for schema-related changes..."
+          
+          # Check for schema-related files
+          SCHEMA_PATTERN="schema|migration|model|database|prisma|sequelize|typeorm"
+          if echo "$CHANGED_FILES" | grep -iE "$SCHEMA_PATTERN" > /dev/null; then
+            echo "✋ Schema changes detected!"
+            SCHEMA_CHANGED=true
+            SCHEMA_FILES=$(echo "$CHANGED_FILES" | grep -iE "$SCHEMA_PATTERN")
+          else
+            echo "✓ No schema changes detected."
+          fi
+          
+          echo "schema_changed=$SCHEMA_CHANGED" >> $GITHUB_OUTPUT
+          echo "schema_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$SCHEMA_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Check for version bump
+        if: steps.schema-check.outputs.schema_changed == 'true'
+        id: version-check
+        run: |
+          CHANGED_FILES="${{ steps.changed-files.outputs.changed_files }}"
+          VERSION_BUMPED=false
+          
+          # Check if package.json version changed
+          if echo "$CHANGED_FILES" | grep "package\.json" > /dev/null; then
+            git fetch origin ${{ github.base_ref }}
+            if git diff origin/${{ github.base_ref }}...HEAD -- package.json | grep -E '^\+.*"version"' > /dev/null; then
+              echo "✓ Version bump detected in package.json"
+              VERSION_BUMPED=true
+            fi
+          fi
+          
+          echo "version_bumped=$VERSION_BUMPED" >> $GITHUB_OUTPUT
+
+      - name: Check for migration files
+        if: steps.schema-check.outputs.schema_changed == 'true'
+        id: migration-check
+        run: |
+          CHANGED_FILES="${{ steps.changed-files.outputs.changed_files }}"
+          MIGRATION_PRESENT=false
+          
+          # Check if migration files are present
+          if echo "$CHANGED_FILES" | grep -iE "migration" > /dev/null; then
+            echo "✓ Migration files detected"
+            MIGRATION_PRESENT=true
+          else
+            echo "⚠ No migration files found"
+          fi
+          
+          echo "migration_present=$MIGRATION_PRESENT" >> $GITHUB_OUTPUT
+
+      - name: Check for schema documentation
+        if: steps.schema-check.outputs.schema_changed == 'true'
+        id: doc-check
+        run: |
+          CHANGED_FILES="${{ steps.changed-files.outputs.changed_files }}"
+          DOC_UPDATED=false
+          
+          # Check if documentation is updated
+          if echo "$CHANGED_FILES" | grep -E "\.(md|txt|rst|adoc)$|^docs/" > /dev/null; then
+            echo "✓ Documentation updates detected"
+            DOC_UPDATED=true
+          else
+            echo "⚠ No documentation updates found"
+          fi
+          
+          echo "doc_updated=$DOC_UPDATED" >> $GITHUB_OUTPUT
+
+      - name: Post schema versioning guidance
+        if: steps.schema-check.outputs.schema_changed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const versionBumped = '${{ steps.version-check.outputs.version_bumped }}' === 'true';
+            const migrationPresent = '${{ steps.migration-check.outputs.migration_present }}' === 'true';
+            const docUpdated = '${{ steps.doc-check.outputs.doc_updated }}' === 'true';
+            const schemaFiles = `${{ steps.schema-check.outputs.schema_files }}`;
+            
+            let versionStatus = versionBumped ? '✅' : '⚠️';
+            let migrationStatus = migrationPresent ? '✅' : '⚠️';
+            let docStatus = docUpdated ? '✅' : '⚠️';
+            
+            const comment = `## 📋 Schema Versioning Guidance
+
+            This PR includes **schema changes** that require special attention:
+
+            ### Changed Files
+            \`\`\`
+            ${schemaFiles}
+            \`\`\`
+
+            ### Versioning Checklist
+            ${versionStatus} **Semantic Version Bump**: ${versionBumped ? 'Version updated in package.json' : 'Please update version in package.json'}
+            ${migrationStatus} **Migration Strategy**: ${migrationPresent ? 'Migration files included' : 'Consider adding migration files if needed'}
+            ${docStatus} **Documentation**: ${docUpdated ? 'Documentation updates included' : 'Please document schema changes'}
+
+            ### Required Actions
+            - [ ] Verify semantic versioning (MAJOR.MINOR.PATCH)
+              - **MAJOR**: Breaking schema changes
+              - **MINOR**: Backward-compatible additions
+              - **PATCH**: Backward-compatible fixes
+            - [ ] Document migration path for existing data
+            - [ ] Ensure backward compatibility or provide upgrade path
+            - [ ] Update schema documentation
+            - [ ] Test migrations with sample data
+
+            ### Backward Compatibility
+            Please confirm:
+            - [ ] Existing data structures remain compatible, OR
+            - [ ] Migration script handles all existing data, OR
+            - [ ] Breaking change is documented with upgrade guide
+
+            ---
+            *This guidance was automatically generated by the Schema Versioning workflow.*`;
+
+            // Check if we already commented
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('Schema Versioning Guidance')
+            );
+
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: comment
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }
