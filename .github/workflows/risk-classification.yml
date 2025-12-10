@@ -1,0 +1,175 @@
+name: Risk Classification
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  risk-classifier:
+    name: Classify PR Risk Level
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files and stats
+        id: changed-files
+        run: |
+          echo "Fetching changed files in this PR..."
+          git fetch origin ${{ github.base_ref }}
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          STATS=$(git diff --stat origin/${{ github.base_ref }}...HEAD)
+          FILE_COUNT=$(echo "$CHANGED_FILES" | wc -l)
+          
+          echo "$CHANGED_FILES"
+          echo "$STATS"
+          
+          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Calculate risk level
+        id: risk-level
+        run: |
+          CHANGED_FILES="${{ steps.changed-files.outputs.changed_files }}"
+          FILE_COUNT=${{ steps.changed-files.outputs.file_count }}
+          RISK_LEVEL="risk:low"
+          RISK_EXPLANATION="Small changes with minimal impact"
+          
+          # Ledger-critical = highest risk
+          if echo "$CHANGED_FILES" | grep -E "(^|/)src/ledger/|^app/api/ledger/|^api/ledger/" > /dev/null; then
+            RISK_LEVEL="risk:ledger-critical"
+            RISK_EXPLANATION="Changes affect ledger-critical code paths"
+          # Schema changes = high risk
+          elif echo "$CHANGED_FILES" | grep -E "schema|migration|model" > /dev/null; then
+            RISK_LEVEL="risk:high"
+            RISK_EXPLANATION="Schema or data model changes detected"
+          # API changes = medium risk
+          elif echo "$CHANGED_FILES" | grep -E "(^|/)api/|^app/api/" > /dev/null; then
+            RISK_LEVEL="risk:medium"
+            RISK_EXPLANATION="API endpoint changes detected"
+          # Large number of files = medium risk
+          elif [ "$FILE_COUNT" -gt 10 ]; then
+            RISK_LEVEL="risk:medium"
+            RISK_EXPLANATION="Large number of files modified ($FILE_COUNT files)"
+          # Workflow changes = medium risk
+          elif echo "$CHANGED_FILES" | grep -E "\.github/workflows/" > /dev/null; then
+            RISK_LEVEL="risk:medium"
+            RISK_EXPLANATION="CI/CD workflow changes detected"
+          # Config changes = medium risk
+          elif echo "$CHANGED_FILES" | grep -E "package\.json|tsconfig|webpack|vite|next\.config|\.env" > /dev/null; then
+            RISK_LEVEL="risk:medium"
+            RISK_EXPLANATION="Configuration file changes detected"
+          # Documentation only = low risk
+          elif echo "$CHANGED_FILES" | grep -vE "\.(md|txt|rst|adoc)$" > /dev/null; then
+            # Has non-documentation files - check size
+            if [ "$FILE_COUNT" -le 3 ]; then
+              RISK_LEVEL="risk:low"
+              RISK_EXPLANATION="Small, focused changes"
+            else
+              RISK_LEVEL="risk:medium"
+              RISK_EXPLANATION="Moderate number of files changed"
+            fi
+          else
+            # All files are documentation
+            RISK_LEVEL="risk:low"
+            RISK_EXPLANATION="Documentation-only changes"
+          fi
+          
+          echo "risk_level=$RISK_LEVEL" >> $GITHUB_OUTPUT
+          echo "risk_explanation=$RISK_EXPLANATION" >> $GITHUB_OUTPUT
+          echo "Risk Level: $RISK_LEVEL"
+          echo "Explanation: $RISK_EXPLANATION"
+
+      - name: Remove old risk labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const riskLabels = ['risk:low', 'risk:medium', 'risk:high', 'risk:ledger-critical'];
+            
+            // Get existing labels
+            const { data: existingLabels } = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            // Remove any existing risk labels
+            for (const label of existingLabels) {
+              if (riskLabels.includes(label.name)) {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  name: label.name
+                }).catch(() => {
+                  // Ignore errors (label might already be removed)
+                });
+              }
+            }
+
+      - name: Apply risk label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const riskLevel = '${{ steps.risk-level.outputs.risk_level }}';
+            const explanation = '${{ steps.risk-level.outputs.risk_explanation }}';
+            
+            // Add the new risk label
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: [riskLevel]
+            });
+            
+            core.info(`Applied risk label: ${riskLevel}`);
+            core.info(`Reason: ${explanation}`);
+            
+            // Post a comment about risk classification
+            const comment = `## 📊 Risk Classification
+
+            **Risk Level:** \`${riskLevel}\`
+
+            **Analysis:** ${explanation}
+
+            ---
+            *Risk classification is automatically updated based on file changes.*`;
+
+            // Check if we already commented
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('Risk Classification')
+            );
+
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: comment
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }

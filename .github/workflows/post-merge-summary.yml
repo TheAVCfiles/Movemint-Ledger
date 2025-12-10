@@ -1,0 +1,238 @@
+name: Post-Merge Summary
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  post-merge-summary:
+    name: Generate Post-Merge Summary
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR information
+        id: pr-info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            
+            // Get labels
+            const labels = pr.labels.map(l => l.name);
+            const riskLabel = labels.find(l => l.startsWith('risk:')) || 'risk:unknown';
+            
+            return {
+              number: pr.number,
+              title: pr.title,
+              author: pr.user.login,
+              merged_by: pr.merged_by?.login || 'unknown',
+              labels: labels,
+              risk_level: riskLabel,
+              base_ref: pr.base.ref,
+              head_ref: pr.head.ref,
+              merge_commit_sha: pr.merge_commit_sha
+            };
+
+      - name: Analyze changes
+        id: analyze
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          
+          echo "Analyzing changes for PR #$PR_NUMBER..."
+          
+          # Get changed files
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          CHANGED_FILES=$(git diff --name-only $BASE_SHA $HEAD_SHA)
+          FILE_COUNT=$(echo "$CHANGED_FILES" | wc -l)
+          
+          # Get diff stats using numstat for reliable parsing
+          NUMSTAT=$(git diff --numstat $BASE_SHA $HEAD_SHA)
+          INSERTIONS=$(echo "$NUMSTAT" | awk '{sum+=$1} END {print sum}')
+          DELETIONS=$(echo "$NUMSTAT" | awk '{sum+=$2} END {print sum}')
+          
+          # Default to 0 if empty
+          INSERTIONS=${INSERTIONS:-0}
+          DELETIONS=${DELETIONS:-0}
+          
+          # Categorize changes
+          LEDGER_FILES=$(echo "$CHANGED_FILES" | grep -E "(^|/)src/ledger/|^app/api/ledger/|^api/ledger/" || echo "")
+          API_FILES=$(echo "$CHANGED_FILES" | grep -E "(^|/)api/|^app/api/" || echo "")
+          SCHEMA_FILES=$(echo "$CHANGED_FILES" | grep -iE "schema|migration|model" || echo "")
+          DOC_FILES=$(echo "$CHANGED_FILES" | grep -E "\.(md|txt|rst|adoc)$|^docs/" || echo "")
+          CONFIG_FILES=$(echo "$CHANGED_FILES" | grep -E "package\.json|tsconfig|webpack|vite|next\.config|\.env" || echo "")
+          WORKFLOW_FILES=$(echo "$CHANGED_FILES" | grep -E "\.github/workflows/" || echo "")
+          
+          # Output results
+          echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
+          echo "insertions=$INSERTIONS" >> $GITHUB_OUTPUT
+          echo "deletions=$DELETIONS" >> $GITHUB_OUTPUT
+          
+          echo "ledger_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$LEDGER_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "api_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$API_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "schema_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$SCHEMA_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "doc_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$DOC_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "config_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CONFIG_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "workflow_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$WORKFLOW_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Determine risk and compatibility notes
+        id: risk-notes
+        run: |
+          RISK_LABEL="${{ fromJson(steps.pr-info.outputs.result).risk_level }}"
+          LEDGER_FILES="${{ steps.analyze.outputs.ledger_files }}"
+          SCHEMA_FILES="${{ steps.analyze.outputs.schema_files }}"
+          API_FILES="${{ steps.analyze.outputs.api_files }}"
+          
+          # Determine risk summary
+          case "$RISK_LABEL" in
+            "risk:ledger-critical")
+              RISK_SUMMARY="⚠️ **CRITICAL**: Ledger-critical paths modified. Monitor for data integrity issues."
+              ;;
+            "risk:high")
+              RISK_SUMMARY="⚠️ **HIGH**: Schema or data model changes. Verify migrations and backward compatibility."
+              ;;
+            "risk:medium")
+              RISK_SUMMARY="⚠️ **MEDIUM**: API or configuration changes. Test integration points."
+              ;;
+            "risk:low")
+              RISK_SUMMARY="✅ **LOW**: Minor changes. Standard monitoring applies."
+              ;;
+            *)
+              RISK_SUMMARY="ℹ️ **UNKNOWN**: Risk level not classified."
+              ;;
+          esac
+          
+          # Compatibility notes
+          COMPAT_NOTES=""
+          if [ -n "$SCHEMA_FILES" ]; then
+            COMPAT_NOTES="${COMPAT_NOTES}\n- Schema changes detected. Ensure migrations are applied before deployment."
+          fi
+          if [ -n "$API_FILES" ]; then
+            COMPAT_NOTES="${COMPAT_NOTES}\n- API changes detected. Update API documentation and notify API consumers."
+          fi
+          if [ -n "$LEDGER_FILES" ]; then
+            COMPAT_NOTES="${COMPAT_NOTES}\n- Ledger code modified. Verify determinism and data integrity."
+          fi
+          if [ -z "$COMPAT_NOTES" ]; then
+            COMPAT_NOTES="\n- No specific compatibility concerns identified."
+          fi
+          
+          echo "risk_summary=$RISK_SUMMARY" >> $GITHUB_OUTPUT
+          echo "compat_notes<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$COMPAT_NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Post merge summary comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prInfo = ${{ steps.pr-info.outputs.result }};
+            const fileCount = '${{ steps.analyze.outputs.file_count }}';
+            const insertions = '${{ steps.analyze.outputs.insertions }}';
+            const deletions = '${{ steps.analyze.outputs.deletions }}';
+            
+            const ledgerFiles = `${{ steps.analyze.outputs.ledger_files }}`.trim();
+            const apiFiles = `${{ steps.analyze.outputs.api_files }}`.trim();
+            const schemaFiles = `${{ steps.analyze.outputs.schema_files }}`.trim();
+            const docFiles = `${{ steps.analyze.outputs.doc_files }}`.trim();
+            const configFiles = `${{ steps.analyze.outputs.config_files }}`.trim();
+            const workflowFiles = `${{ steps.analyze.outputs.workflow_files }}`.trim();
+            
+            const riskSummary = `${{ steps.risk-notes.outputs.risk_summary }}`;
+            const compatNotes = `${{ steps.risk-notes.outputs.compat_notes }}`;
+            
+            // Build breakdown section
+            let breakdown = '';
+            if (ledgerFiles) {
+              breakdown += `\n#### 🔒 Ledger Changes\n\`\`\`\n${ledgerFiles}\n\`\`\`\n`;
+            }
+            if (apiFiles) {
+              breakdown += `\n#### 🔌 API Changes\n\`\`\`\n${apiFiles}\n\`\`\`\n`;
+            }
+            if (schemaFiles) {
+              breakdown += `\n#### 📊 Schema Changes\n\`\`\`\n${schemaFiles}\n\`\`\`\n`;
+            }
+            if (workflowFiles) {
+              breakdown += `\n#### 🔧 Workflow Changes\n\`\`\`\n${workflowFiles}\n\`\`\`\n`;
+            }
+            if (configFiles) {
+              breakdown += `\n#### ⚙️ Configuration Changes\n\`\`\`\n${configFiles}\n\`\`\`\n`;
+            }
+            if (docFiles) {
+              breakdown += `\n#### 📝 Documentation Changes\n\`\`\`\n${docFiles}\n\`\`\`\n`;
+            }
+            
+            if (!breakdown) {
+              breakdown = '\n*No categorized changes detected.*\n';
+            }
+            
+            const comment = `## 📈 Post-Merge Summary
+
+            PR #${prInfo.number} **"${prInfo.title}"** has been merged! 🎉
+
+            **Author:** @${prInfo.author}  
+            **Merged by:** @${prInfo.merged_by}  
+            **Branch:** \`${prInfo.head_ref}\` → \`${prInfo.base_ref}\`
+
+            ### 📊 Change Statistics
+            - **Files Changed:** ${fileCount}
+            - **Insertions:** +${insertions}
+            - **Deletions:** -${deletions}
+            - **Labels:** ${prInfo.labels.join(', ') || 'None'}
+
+            ### 🔍 Codebase Breakdown
+            ${breakdown}
+
+            ### ⚠️ Risk Assessment
+            ${riskSummary}
+
+            ### 🔄 Backward Compatibility Considerations
+            ${compatNotes}
+
+            ### 📌 Version Impact
+            ${schemaFiles ? '- Schema version may need updating\n' : ''}${apiFiles ? '- API version considerations apply\n' : ''}${!schemaFiles && !apiFiles ? '- No version impact detected\n' : ''}
+
+            ### 🎯 Next Steps
+            - Monitor application logs for any issues
+            - Verify deployment in staging environment
+            - Update relevant documentation if needed
+            ${ledgerFiles ? '- **Critical:** Verify ledger data integrity after deployment\n' : ''}
+
+            ---
+            *This summary was automatically generated by the Post-Merge Summary workflow.*`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: comment
+            });
+            
+            core.info('Post-merge summary posted successfully!');

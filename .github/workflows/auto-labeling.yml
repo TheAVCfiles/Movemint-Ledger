@@ -1,0 +1,100 @@
+name: Auto-Labeling
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  auto-label:
+    name: Apply Labels Based on File Changes
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed-files
+        run: |
+          echo "Fetching changed files in this PR..."
+          git fetch origin ${{ github.base_ref }}
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          echo "$CHANGED_FILES"
+          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Determine labels
+        id: determine-labels
+        run: |
+          CHANGED_FILES="${{ steps.changed-files.outputs.changed_files }}"
+          LABELS=""
+          
+          # Check for ledger paths
+          if echo "$CHANGED_FILES" | grep -E "(^|/)src/ledger/|^app/api/ledger/|^api/ledger/" > /dev/null; then
+            echo "Found ledger path changes"
+            LABELS="$LABELS,ledger"
+          fi
+          
+          # Check for API paths
+          if echo "$CHANGED_FILES" | grep -E "(^|/)api/|^app/api/" > /dev/null; then
+            echo "Found API path changes"
+            LABELS="$LABELS,api"
+          fi
+          
+          # Check for schema changes
+          if echo "$CHANGED_FILES" | grep -E "schema|migration|model" > /dev/null; then
+            echo "Found schema-related changes"
+            LABELS="$LABELS,schema-change"
+          fi
+          
+          # Check for documentation changes
+          if echo "$CHANGED_FILES" | grep -E "\.(md|txt|rst|adoc)$|^docs/|README" > /dev/null; then
+            echo "Found documentation changes"
+            LABELS="$LABELS,docs"
+          fi
+          
+          # Remove leading comma if present
+          LABELS=$(echo "$LABELS" | sed 's/^,//')
+          
+          echo "labels=$LABELS" >> $GITHUB_OUTPUT
+          echo "Determined labels: $LABELS"
+
+      - name: Apply labels
+        if: steps.determine-labels.outputs.labels != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = '${{ steps.determine-labels.outputs.labels }}'.split(',').filter(l => l.trim());
+            
+            if (labels.length > 0) {
+              // Get existing labels
+              const { data: existingLabels } = await github.rest.issues.listLabelsOnIssue({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+              });
+              
+              const existingLabelNames = existingLabels.map(l => l.name);
+              
+              // Only add labels that don't exist yet
+              const labelsToAdd = labels.filter(l => !existingLabelNames.includes(l));
+              
+              if (labelsToAdd.length > 0) {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  labels: labelsToAdd
+                });
+                
+                core.info(`Added labels: ${labelsToAdd.join(', ')}`);
+              } else {
+                core.info('All labels already present');
+              }
+            }

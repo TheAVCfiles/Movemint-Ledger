@@ -7,10 +7,15 @@ jobs:
   merge-gate:
     name: Enforce Maintainer Shield
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      contents: read
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Validate CI Status
         run: |
@@ -48,9 +53,77 @@ jobs:
             echo "✔ CI smoke test workflow present."
           fi
 
+      - name: Check for ledger-critical changes
+        id: check-ledger
+        run: |
+          echo "🔍 Checking for ledger-critical path changes..."
+          git fetch origin ${{ github.base_ref }}
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          
+          if echo "$CHANGED_FILES" | grep -E "(^|/)src/ledger/|^app/api/ledger/|^api/ledger/" > /dev/null; then
+            echo "is_ledger_critical=true" >> $GITHUB_OUTPUT
+            echo "✋ Ledger-critical paths detected - founder approval required"
+          else
+            echo "is_ledger_critical=false" >> $GITHUB_OUTPUT
+            echo "✔ No ledger-critical paths affected"
+          fi
+
+      - name: Enforce founder approval for ledger-critical PRs
+        if: steps.check-ledger.outputs.is_ledger_critical == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Configuration: Update this if the founder username changes
+            const founder = 'TheAVCfiles';
+            const prAuthor = context.payload.pull_request.user.login;
+            
+            // If PR is by founder, no additional approval needed
+            if (prAuthor === founder) {
+              core.info(`✓ PR authored by founder @${founder}`);
+              return;
+            }
+            
+            // Get reviews
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            
+            // Check if founder approved
+            const founderApproved = reviews.some(review => 
+              review.user.login === founder && review.state === 'APPROVED'
+            );
+            
+            if (!founderApproved) {
+              core.setFailed(`❌ Merge blocked: Ledger-critical PR requires approval from @${founder}`);
+            } else {
+              core.info(`✓ Founder approval received from @${founder}`);
+            }
+
+      - name: Verify Phase 2 automation labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            
+            const labels = pr.labels.map(l => l.name);
+            const hasRiskLabel = labels.some(l => l.startsWith('risk:'));
+            
+            if (!hasRiskLabel) {
+              core.warning('⚠️ No risk label found. Risk Classification workflow may not have run yet.');
+            } else {
+              core.info(`✓ Risk label present: ${labels.find(l => l.startsWith('risk:'))}`);
+            }
+
       - name: Final Founder Gate
         run: |
-          echo "🔍 Ensuring PR cannot merge without explicit maintainer approval..."
+          echo "🔍 Final maintainer approval check..."
+          # Configuration: Update this if the founder/maintainer username changes
           AUTHOR="${{ github.event.pull_request.user.login }}"
           MAINTAINER="TheAVCfiles"
 
@@ -58,4 +131,4 @@ jobs:
             echo "⚠ PR opened by $AUTHOR. Maintainer ($MAINTAINER) must review and approve before merging."
           fi
 
-          echo "🛡 Merge Gatekeeper checks passed (preliminary)."
+          echo "🛡 Merge Gatekeeper checks passed."
