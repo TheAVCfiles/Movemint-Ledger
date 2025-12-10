@@ -34,11 +34,18 @@ jobs:
 
       - name: Start app in background
         run: |
-          npm run start &
+          npm run start > app.log 2>&1 &
+          APP_PID=$!
+          echo $APP_PID > app.pid
+          echo "App started with PID: $APP_PID"
           echo "Waiting for app to boot..."
           sleep 20
 
       - name: Smoke test ledger endpoint
         run: |
-          curl --fail http://localhost:3000/api/ledger \
-            || (echo "Smoke test failed" && exit 1)
+          if ! curl --fail http://localhost:3000/api/ledger; then
+            echo "=== Smoke test failed ==="
+            echo "=== Application logs ==="
+            cat app.log
+            exit 1
+          fi
