@@ -14,10 +14,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -26,10 +26,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Lint (if available)
+      - name: Lint (if present)
         run: npm run lint --if-present
 
-      - name: Test (if available)
+      - name: Test (if present)
         run: npm run test --if-present
 
       - name: Build app
@@ -37,18 +37,13 @@ jobs:
 
       - name: Start app in background
         run: |
-          npm run start &
+          npm run start &> app.log &
           echo "Waiting for app to boot..."
-          # Retry loop to wait for server
-          for i in {1..30}; do
-            if curl -s http://localhost:3000/api/ledger > /dev/null 2>&1; then
-              echo "Server is ready!"
-              break
-            fi
-            echo "Attempt $i: Server not ready, waiting..."
-            sleep 2
-          done
+          sleep 20
 
-      - name: Smoke test ledger endpoint
+      - name: Smoke test /api/ledger
         run: |
-          curl --fail http://localhost:3000/api/ledger || (echo "Smoke test failed" && exit 1)
+          set -e
+          echo "Hitting ledger endpoint..."
+          curl --fail http://localhost:3000/api/ledger \
+            || { echo "Smoke test failed"; cat app.log || true; exit 1; }
