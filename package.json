@@ -1,0 +1,15 @@
+{
+  "name": "movemint-ledger",
+  "version": "1.0.0",
+  "description": "MoveMint Studio Ledger",
+  "private": true,
+  "scripts": {
+    "test": "echo \"No tests specified\" && exit 0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TheAVCfiles/Movemint-Ledger.git"
+  },
+  "author": "",
+  "license": "MIT"
+}
