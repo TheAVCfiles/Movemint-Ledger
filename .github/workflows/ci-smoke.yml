@@ -42,3 +42,127 @@ jobs:
         run: |
           curl --fail http://localhost:3000/api/ledger \
             || (echo "Smoke test failed" && exit 1)
+
+      - name: Replay integrity test - POST entry
+        run: |
+          echo "Submitting ledger entry..."
+          RESPONSE=$(curl -X POST http://localhost:3000/api/ledger \
+            -H "Content-Type: application/json" \
+            -d '{"type":"deposit","amount":100.50}' \
+            -w "\nHTTP_STATUS:%{http_code}" \
+            -s)
+          
+          HTTP_STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS" | cut -d':' -f2)
+          BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')
+          
+          echo "Response status: $HTTP_STATUS"
+          echo "Response body: $BODY"
+          
+          # Check status code is 201
+          if [ "$HTTP_STATUS" -ne 201 ]; then
+            echo "Expected status 201, got $HTTP_STATUS"
+            exit 1
+          fi
+          
+          # Check response contains schemaVersion
+          if ! echo "$BODY" | grep -q '"schemaVersion":"1.0.0"'; then
+            echo "Response missing schemaVersion"
+            exit 1
+          fi
+
+      - name: Replay integrity test - GET entry
+        run: |
+          echo "Retrieving ledger entries..."
+          RESPONSE=$(curl -s http://localhost:3000/api/ledger)
+          echo "Response: $RESPONSE"
+          
+          # Check response contains schemaVersion
+          if ! echo "$RESPONSE" | grep -q '"schemaVersion":"1.0.0"'; then
+            echo "Response missing schemaVersion"
+            exit 1
+          fi
+          
+          # Check response contains the posted entry
+          if ! echo "$RESPONSE" | grep -q '"type":"deposit"'; then
+            echo "Posted entry not found in GET response"
+            exit 1
+          fi
+          
+          if ! echo "$RESPONSE" | grep -q '"amount":100.5'; then
+            echo "Posted amount not found in GET response"
+            exit 1
+          fi
+          
+          echo "Replay integrity test passed!"
+
+      - name: Replay integrity test - Validate deterministic order
+        run: |
+          echo "Testing deterministic ordering..."
+          # POST multiple entries
+          curl -X POST http://localhost:3000/api/ledger \
+            -H "Content-Type: application/json" \
+            -d '{"type":"withdrawal","amount":50}' -s > /dev/null
+          
+          sleep 1
+          
+          curl -X POST http://localhost:3000/api/ledger \
+            -H "Content-Type: application/json" \
+            -d '{"type":"transfer","amount":25}' -s > /dev/null
+          
+          # GET entries twice and compare
+          RESPONSE1=$(curl -s http://localhost:3000/api/ledger)
+          sleep 1
+          RESPONSE2=$(curl -s http://localhost:3000/api/ledger)
+          
+          if [ "$RESPONSE1" != "$RESPONSE2" ]; then
+            echo "Responses are not deterministic!"
+            echo "First response: $RESPONSE1"
+            echo "Second response: $RESPONSE2"
+            exit 1
+          fi
+          
+          echo "Deterministic ordering verified!"
+
+      - name: Replay integrity test - Validate malformed payload rejection
+        run: |
+          echo "Testing payload validation..."
+          # Test missing type field
+          RESPONSE1=$(curl -X POST http://localhost:3000/api/ledger \
+            -H "Content-Type: application/json" \
+            -d '{"amount":100}' \
+            -w "\nHTTP_STATUS:%{http_code}" \
+            -s)
+          HTTP_STATUS1=$(echo "$RESPONSE1" | grep "HTTP_STATUS" | cut -d':' -f2)
+          
+          if [ "$HTTP_STATUS1" -ne 400 ]; then
+            echo "Expected 400 for missing type, got $HTTP_STATUS1"
+            exit 1
+          fi
+          
+          # Test missing amount field
+          RESPONSE2=$(curl -X POST http://localhost:3000/api/ledger \
+            -H "Content-Type: application/json" \
+            -d '{"type":"deposit"}' \
+            -w "\nHTTP_STATUS:%{http_code}" \
+            -s)
+          HTTP_STATUS2=$(echo "$RESPONSE2" | grep "HTTP_STATUS" | cut -d':' -f2)
+          
+          if [ "$HTTP_STATUS2" -ne 400 ]; then
+            echo "Expected 400 for missing amount, got $HTTP_STATUS2"
+            exit 1
+          fi
+          
+          # Test invalid JSON
+          RESPONSE3=$(curl -X POST http://localhost:3000/api/ledger \
+            -H "Content-Type: application/json" \
+            -d 'invalid json' \
+            -w "\nHTTP_STATUS:%{http_code}" \
+            -s)
+          HTTP_STATUS3=$(echo "$RESPONSE3" | grep "HTTP_STATUS" | cut -d':' -f2)
+          
+          if [ "$HTTP_STATUS3" -ne 400 ]; then
+            echo "Expected 400 for invalid JSON, got $HTTP_STATUS3"
+            exit 1
+          fi
+          
+          echo "Payload validation tests passed!"
