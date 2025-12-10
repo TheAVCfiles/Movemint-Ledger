@@ -1,0 +1,235 @@
+name: Architecture Drift Detector
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+  issues: write
+
+jobs:
+  detect-drift:
+    name: Coupling Diagnostics
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Fetch base branch
+        run: |
+          git fetch origin ${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}
+      
+      - name: Detect architectural drift
+        id: drift-check
+        run: |
+          echo "🔍 Analyzing architectural drift for PR #${{ github.event.pull_request.number }}..."
+          
+          # Get list of changed files
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          
+          # Categorize changes by layer
+          LEDGER_FILES=$(echo "$CHANGED_FILES" | grep -E "(src/ledger|app/api/ledger|api/ledger)" || true)
+          UI_FILES=$(echo "$CHANGED_FILES" | grep -E "(components/|pages/|app/.*\.(tsx|jsx)|ui/|frontend/)" || true)
+          API_FILES=$(echo "$CHANGED_FILES" | grep -E "(app/api/|api/|routes/|controllers/)" || true)
+          WORKFLOW_FILES=$(echo "$CHANGED_FILES" | grep -E "\.github/workflows" || true)
+          SCHEMA_FILES=$(echo "$CHANGED_FILES" | grep -E "(schema|migrations?|\.sql)" || true)
+          CONFIG_FILES=$(echo "$CHANGED_FILES" | grep -E "(package\.json|tsconfig|next\.config|\.env)" || true)
+          
+          # Count files per layer
+          LEDGER_COUNT=$(echo "$LEDGER_FILES" | grep -v '^$' | wc -l)
+          UI_COUNT=$(echo "$UI_FILES" | grep -v '^$' | wc -l)
+          API_COUNT=$(echo "$API_FILES" | grep -v '^$' | wc -l)
+          WORKFLOW_COUNT=$(echo "$WORKFLOW_FILES" | grep -v '^$' | wc -l)
+          SCHEMA_COUNT=$(echo "$SCHEMA_FILES" | grep -v '^$' | wc -l)
+          CONFIG_COUNT=$(echo "$CONFIG_FILES" | grep -v '^$' | wc -l)
+          
+          echo "Layer counts:"
+          echo "  Ledger: $LEDGER_COUNT"
+          echo "  UI: $UI_COUNT"
+          echo "  API: $API_COUNT"
+          echo "  Workflows: $WORKFLOW_COUNT"
+          echo "  Schema: $SCHEMA_COUNT"
+          echo "  Config: $CONFIG_COUNT"
+          
+          # Initialize drift report
+          REPORT="## 🧭 Architecture Drift Analysis\n\n"
+          REPORT+="**PR**: #${{ github.event.pull_request.number }}\n"
+          REPORT+="**Drift Check**: $(date -u +'%Y-%m-%d %H:%M:%S UTC')\n\n"
+          
+          # Drift detection flags
+          DRIFT_DETECTED=false
+          DRIFT_LEVEL="none"
+          
+          # Critical drift: UI + Ledger changes together
+          if [ "$LEDGER_COUNT" -gt 0 ] && [ "$UI_COUNT" -gt 0 ]; then
+            DRIFT_DETECTED=true
+            DRIFT_LEVEL="high"
+            REPORT+="### ⚠️  **HIGH COUPLING DETECTED**\n\n"
+            REPORT+="This PR modifies both **UI/Frontend** and **Ledger** layers simultaneously.\n\n"
+            REPORT+="**Ledger Files** ($LEDGER_COUNT):\n"
+            while IFS= read -r file; do
+              [ -n "$file" ] && REPORT+="- \`$file\`\n"
+            done <<< "$(echo "$LEDGER_FILES" | grep -v '^$')"
+            REPORT+="\n**UI Files** ($UI_COUNT):\n"
+            while IFS= read -r file; do
+              [ -n "$file" ] && REPORT+="- \`$file\`\n"
+            done <<< "$(echo "$UI_FILES" | grep -v '^$')"
+            REPORT+="\n**⚠️  Coupling Concern**: Changes that span from UI to ledger indicate potential tight coupling.\n"
+            REPORT+="**💡 Recommendation**: Consider whether these changes can be separated into:\n"
+            REPORT+="1. A backend/ledger PR (API contract changes)\n"
+            REPORT+="2. A frontend PR (consuming the new API)\n\n"
+            REPORT+="**Why this matters for governance**:\n"
+            REPORT+="- Tightly coupled changes make it harder to review data integrity separately from UI logic\n"
+            REPORT+="- Changes to critical ledger code should be isolated for focused review\n"
+            REPORT+="- Separation allows independent testing and rollback of frontend vs backend\n\n"
+          fi
+          
+          # Medium drift: API + multiple layers
+          if [ "$API_COUNT" -gt 0 ] && ([ "$UI_COUNT" -gt 0 ] || [ "$SCHEMA_COUNT" -gt 0 ]); then
+            if [ "$DRIFT_DETECTED" = false ]; then
+              DRIFT_DETECTED=true
+              DRIFT_LEVEL="medium"
+            fi
+            REPORT+="### ℹ️  **Cross-Layer Changes Detected**\n\n"
+            REPORT+="This PR touches multiple architectural layers:\n"
+            [ "$API_COUNT" -gt 0 ] && REPORT+="- API/Backend: $API_COUNT file(s)\n"
+            [ "$UI_COUNT" -gt 0 ] && REPORT+="- UI/Frontend: $UI_COUNT file(s)\n"
+            [ "$SCHEMA_COUNT" -gt 0 ] && REPORT+="- Schema/Data: $SCHEMA_COUNT file(s)\n"
+            REPORT+="\n**💡 Architectural Note**: Multi-layer changes are sometimes necessary but should be reviewed carefully.\n"
+            REPORT+="Ensure proper separation of concerns and consider if staging these changes would reduce risk.\n\n"
+          fi
+          
+          # Workflow + critical code changes
+          if [ "$WORKFLOW_COUNT" -gt 0 ] && ([ "$LEDGER_COUNT" -gt 0 ] || [ "$API_COUNT" -gt 0 ]); then
+            REPORT+="### 🔧 **CI + Code Changes**\n\n"
+            REPORT+="This PR modifies both workflow/CI configuration and application code.\n"
+            REPORT+="- Workflow files: $WORKFLOW_COUNT\n"
+            REPORT+="- Code files: Combined ledger/API changes\n\n"
+            REPORT+="**💡 Note**: Ensure CI changes are compatible with code changes and properly tested.\n\n"
+          fi
+          
+          # Schema + code changes
+          if [ "$SCHEMA_COUNT" -gt 0 ] && ([ "$LEDGER_COUNT" -gt 0 ] || [ "$API_COUNT" -gt 0 ] || [ "$UI_COUNT" -gt 0 ]); then
+            REPORT+="### 📋 **Schema + Application Changes**\n\n"
+            REPORT+="This PR includes schema/database changes alongside application code.\n"
+            REPORT+="- Schema files: $SCHEMA_COUNT\n\n"
+            REPORT+="**⚠️  Governance Note**: Schema changes require careful migration planning and backward compatibility review.\n\n"
+          fi
+          
+          # Configuration drift
+          if [ "$CONFIG_COUNT" -gt 0 ]; then
+            REPORT+="### ⚙️  **Configuration Changes**\n\n"
+            while IFS= read -r file; do
+              [ -n "$file" ] && REPORT+="- \`$file\`\n"
+            done <<< "$(echo "$CONFIG_FILES" | grep -v '^$')"
+            REPORT+="\n**Note**: Configuration changes affect application behavior across all environments.\n\n"
+          fi
+          
+          # No significant drift detected
+          if [ "$DRIFT_DETECTED" = false ]; then
+            REPORT+="### ✅ **No Significant Drift Detected**\n\n"
+            REPORT+="Changes appear to be well-contained within a single architectural layer.\n"
+            REPORT+="This promotes good separation of concerns and easier review.\n\n"
+          fi
+          
+          # Summary section
+          REPORT+="### 📊 Layer Distribution\n\n"
+          REPORT+="\`\`\`\n"
+          REPORT+="Ledger:    $LEDGER_COUNT file(s)\n"
+          REPORT+="API:       $API_COUNT file(s)\n"
+          REPORT+="UI:        $UI_COUNT file(s)\n"
+          REPORT+="Workflows: $WORKFLOW_COUNT file(s)\n"
+          REPORT+="Schema:    $SCHEMA_COUNT file(s)\n"
+          REPORT+="Config:    $CONFIG_COUNT file(s)\n"
+          REPORT+="\`\`\`\n\n"
+          
+          REPORT+="---\n"
+          REPORT+="*Drift Level*: **$DRIFT_LEVEL** | "
+          if [ "$DRIFT_DETECTED" = true ]; then
+            REPORT+="*Status*: ⚠️  Coupling detected - review recommended\n"
+          else
+            REPORT+="*Status*: ✅ Good separation of concerns\n"
+          fi
+          REPORT+="*This is an informational diagnostic to help maintain clean architecture.*\n"
+          
+          # Save report
+          echo -e "$REPORT" > /tmp/drift-report.md
+          cat /tmp/drift-report.md
+          
+          # Set outputs
+          echo "drift_detected=$DRIFT_DETECTED" >> $GITHUB_OUTPUT
+          echo "drift_level=$DRIFT_LEVEL" >> $GITHUB_OUTPUT
+      
+      - name: Post drift analysis as comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('/tmp/drift-report.md', 'utf8');
+            
+            // Check if we already posted a comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('🧭 Architecture Drift Analysis')
+            );
+            
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: report
+              });
+              console.log('Updated existing drift analysis comment');
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: report
+              });
+              console.log('Posted new drift analysis comment');
+            }
+      
+      - name: Add label for high coupling
+        if: steps.drift-check.outputs.drift_level == 'high'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            try {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: ['architecture-drift']
+              });
+              console.log('Added architecture-drift label');
+            } catch (error) {
+              console.log('Note: architecture-drift label may not exist yet:', error.message);
+            }
+      
+      - name: Complete drift analysis
+        run: |
+          echo "✅ Architecture drift analysis complete"
+          DRIFT_LEVEL="${{ steps.drift-check.outputs.drift_level }}"
+          if [ "$DRIFT_LEVEL" = "high" ]; then
+            echo "⚠️  High coupling detected - review recommended"
+          elif [ "$DRIFT_LEVEL" = "medium" ]; then
+            echo "ℹ️  Cross-layer changes detected - review with care"
+          else
+            echo "✅ Good architectural separation maintained"
+          fi
+          echo "ℹ️  This workflow is informational and does not block merges"
