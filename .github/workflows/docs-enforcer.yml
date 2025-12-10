@@ -1,0 +1,84 @@
+name: Documentation Enforcer
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  enforce-docs:
+    name: Enforce Documentation Updates
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for documentation updates when code changes
+        run: |
+          echo "🔍 Checking if code changes require documentation updates..."
+
+          # Get the base branch
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+
+          # Get list of changed files
+          CHANGED_FILES=$(git diff --name-only $BASE_SHA HEAD)
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          echo ""
+
+          # Check if ledger or API code changed
+          LEDGER_CHANGED=false
+          API_CHANGED=false
+          DOCS_CHANGED=false
+
+          while IFS= read -r file; do
+            # Check for ledger changes (src/ledger, lib/ledger, ledger/)
+            if [[ "$file" =~ (^|/)ledger/ ]] || [[ "$file" =~ src/ledger/ ]] || [[ "$file" =~ lib/ledger/ ]]; then
+              LEDGER_CHANGED=true
+              echo "Detected ledger change: $file"
+            fi
+
+            # Check for API changes (api/, src/api/)
+            if [[ "$file" =~ (^|/)api/ ]] || [[ "$file" =~ src/api/ ]]; then
+              API_CHANGED=true
+              echo "Detected API change: $file"
+            fi
+
+            # Check for documentation changes (.md files, docs/)
+            if [[ "$file" =~ \.md$ ]] || [[ "$file" =~ (^|/)docs/ ]] || [[ "$file" =~ (^|/)documentation/ ]]; then
+              DOCS_CHANGED=true
+              echo "Detected documentation change: $file"
+            fi
+          done <<< "$CHANGED_FILES"
+
+          echo ""
+          echo "Summary:"
+          echo "  Ledger changed: $LEDGER_CHANGED"
+          echo "  API changed: $API_CHANGED"
+          echo "  Docs changed: $DOCS_CHANGED"
+          echo ""
+
+          # If ledger or API changed but no docs changed, fail
+          if [[ "$LEDGER_CHANGED" == true ]] || [[ "$API_CHANGED" == true ]]; then
+            if [[ "$DOCS_CHANGED" == false ]]; then
+              echo "❌ Documentation enforcement failed!"
+              echo ""
+              echo "This PR contains ledger or API changes but no documentation updates."
+              echo "Please update the relevant documentation to reflect your changes:"
+              echo "  - Add/update README.md if user-facing behavior changed"
+              echo "  - Update API documentation for endpoint changes"
+              echo "  - Document ledger schema or data model changes"
+              echo "  - Add inline code comments for complex logic"
+              exit 1
+            else
+              echo "✔ Documentation updates detected alongside code changes."
+            fi
+          else
+            echo "✔ No ledger or API changes detected, documentation enforcement not required."
+          fi
+
+          echo "🛡 Documentation enforcement passed."
