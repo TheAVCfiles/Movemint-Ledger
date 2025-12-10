@@ -1,0 +1,280 @@
+name: Post-Merge Provenance Report
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  provenance-report:
+    name: Merge Provenance Summary
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+      
+      - name: Get merge commit details
+        id: merge-info
+        run: |
+          echo "🔍 Analyzing merge commit..."
+          
+          # Get the latest commit
+          COMMIT_SHA="${{ github.sha }}"
+          COMMIT_MSG=$(git log -1 --pretty=format:"%s" $COMMIT_SHA)
+          COMMIT_AUTHOR=$(git log -1 --pretty=format:"%an" $COMMIT_SHA)
+          COMMIT_EMAIL=$(git log -1 --pretty=format:"%ae" $COMMIT_SHA)
+          COMMIT_DATE=$(git log -1 --pretty=format:"%ai" $COMMIT_SHA)
+          
+          echo "Commit: $COMMIT_SHA"
+          echo "Message: $COMMIT_MSG"
+          echo "Author: $COMMIT_AUTHOR <$COMMIT_EMAIL>"
+          echo "Date: $COMMIT_DATE"
+          
+          # Extract PR number if this is a merge commit
+          PR_NUMBER=""
+          if [[ "$COMMIT_MSG" =~ \(#([0-9]+)\) ]]; then
+            PR_NUMBER="${BASH_REMATCH[1]}"
+            echo "PR Number: #$PR_NUMBER"
+          elif [[ "$COMMIT_MSG" =~ Merge\ pull\ request\ #([0-9]+) ]]; then
+            PR_NUMBER="${BASH_REMATCH[1]}"
+            echo "PR Number: #$PR_NUMBER"
+          fi
+          
+          # Get parent commits to determine what was merged
+          PARENT_COUNT=$(git rev-list --parents -n 1 $COMMIT_SHA | wc -w)
+          PARENT_COUNT=$((PARENT_COUNT - 1))
+          
+          echo "parent_count=$PARENT_COUNT" >> $GITHUB_OUTPUT
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "commit_author=$COMMIT_AUTHOR" >> $GITHUB_OUTPUT
+          echo "commit_date=$COMMIT_DATE" >> $GITHUB_OUTPUT
+          echo "commit_msg=$COMMIT_MSG" >> $GITHUB_OUTPUT
+      
+      - name: Analyze merged changes
+        id: analyze-changes
+        run: |
+          echo "📊 Analyzing changes in merge..."
+          
+          COMMIT_SHA="${{ github.sha }}"
+          
+          # For merge commits, compare against first parent
+          # For regular commits, compare against previous commit
+          if [ "${{ steps.merge-info.outputs.parent_count }}" -gt 1 ]; then
+            COMPARE_BASE="$COMMIT_SHA^1"
+            echo "Analyzing merge commit (comparing with first parent)"
+          else
+            COMPARE_BASE="$COMMIT_SHA^"
+            echo "Analyzing regular commit"
+          fi
+          
+          # Get changed files
+          CHANGED_FILES=$(git diff --name-only $COMPARE_BASE $COMMIT_SHA)
+          FILE_COUNT=$(echo "$CHANGED_FILES" | grep -v '^$' | wc -l)
+          
+          echo "Changed files ($FILE_COUNT):"
+          echo "$CHANGED_FILES"
+          
+          # Categorize changes
+          LEDGER_FILES=$(echo "$CHANGED_FILES" | grep -E "(src/ledger|app/api/ledger|api/ledger)" || true)
+          API_FILES=$(echo "$CHANGED_FILES" | grep -E "(app/api/|api/|routes/)" || true)
+          UI_FILES=$(echo "$CHANGED_FILES" | grep -E "(components/|pages/|app/.*\.(tsx|jsx)|ui/)" || true)
+          WORKFLOW_FILES=$(echo "$CHANGED_FILES" | grep -E "\.github/workflows" || true)
+          SCHEMA_FILES=$(echo "$CHANGED_FILES" | grep -E "(schema|migrations?|\.sql)" || true)
+          CONFIG_FILES=$(echo "$CHANGED_FILES" | grep -E "(package\.json|tsconfig|next\.config|\.env)" || true)
+          DOC_FILES=$(echo "$CHANGED_FILES" | grep -E "\.(md|txt|rst)$" || true)
+          TEST_FILES=$(echo "$CHANGED_FILES" | grep -E "(test|spec|__tests__)" || true)
+          
+          # Count files per category
+          LEDGER_COUNT=$(echo "$LEDGER_FILES" | grep -v '^$' | wc -l)
+          API_COUNT=$(echo "$API_FILES" | grep -v '^$' | wc -l)
+          UI_COUNT=$(echo "$UI_FILES" | grep -v '^$' | wc -l)
+          WORKFLOW_COUNT=$(echo "$WORKFLOW_FILES" | grep -v '^$' | wc -l)
+          SCHEMA_COUNT=$(echo "$SCHEMA_FILES" | grep -v '^$' | wc -l)
+          CONFIG_COUNT=$(echo "$CONFIG_FILES" | grep -v '^$' | wc -l)
+          DOC_COUNT=$(echo "$DOC_FILES" | grep -v '^$' | wc -l)
+          TEST_COUNT=$(echo "$TEST_FILES" | grep -v '^$' | wc -l)
+          
+          # Get diff stats
+          DIFF_STATS=$(git diff --shortstat $COMPARE_BASE $COMMIT_SHA)
+          
+          # Save counts to outputs
+          echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
+          echo "ledger_count=$LEDGER_COUNT" >> $GITHUB_OUTPUT
+          echo "api_count=$API_COUNT" >> $GITHUB_OUTPUT
+          echo "ui_count=$UI_COUNT" >> $GITHUB_OUTPUT
+          echo "workflow_count=$WORKFLOW_COUNT" >> $GITHUB_OUTPUT
+          echo "schema_count=$SCHEMA_COUNT" >> $GITHUB_OUTPUT
+          echo "config_count=$CONFIG_COUNT" >> $GITHUB_OUTPUT
+          echo "doc_count=$DOC_COUNT" >> $GITHUB_OUTPUT
+          echo "test_count=$TEST_COUNT" >> $GITHUB_OUTPUT
+          echo "diff_stats=$DIFF_STATS" >> $GITHUB_OUTPUT
+          
+          # Save file lists
+          echo "$LEDGER_FILES" > /tmp/ledger_files.txt
+          echo "$API_FILES" > /tmp/api_files.txt
+          echo "$UI_FILES" > /tmp/ui_files.txt
+          echo "$WORKFLOW_FILES" > /tmp/workflow_files.txt
+          echo "$SCHEMA_FILES" > /tmp/schema_files.txt
+          echo "$CONFIG_FILES" > /tmp/config_files.txt
+      
+      - name: Generate provenance report
+        id: generate-report
+        run: |
+          echo "📝 Generating provenance report..."
+          
+          REPORT="## 📦 Post-Merge Provenance Report\n\n"
+          REPORT+="**Branch**: \`${{ github.ref_name }}\`\n"
+          REPORT+="**Commit**: \`${{ github.sha }}\`\n"
+          REPORT+="**Author**: ${{ steps.merge-info.outputs.commit_author }}\n"
+          REPORT+="**Date**: ${{ steps.merge-info.outputs.commit_date }}\n"
+          
+          if [ -n "${{ steps.merge-info.outputs.pr_number }}" ]; then
+            REPORT+="**PR**: #${{ steps.merge-info.outputs.pr_number }}\n"
+          fi
+          
+          REPORT+="**Message**: ${{ steps.merge-info.outputs.commit_msg }}\n\n"
+          
+          REPORT+="---\n\n"
+          
+          # Change summary
+          REPORT+="### 📊 Change Summary\n\n"
+          REPORT+="**Files Changed**: ${{ steps.analyze-changes.outputs.file_count }}\n"
+          REPORT+="**Diff Stats**: ${{ steps.analyze-changes.outputs.diff_stats }}\n\n"
+          
+          # Governance-relevant changes
+          REPORT+="### 🎯 Governance-Relevant Changes\n\n"
+          
+          HAS_GOVERNANCE_CHANGES=false
+          
+          if [ "${{ steps.analyze-changes.outputs.ledger_count }}" -gt 0 ]; then
+            HAS_GOVERNANCE_CHANGES=true
+            REPORT+="#### ⚠️  Ledger Changes (${{ steps.analyze-changes.outputs.ledger_count }} file(s))\n\n"
+            REPORT+="Critical ledger code was modified:\n"
+            cat /tmp/ledger_files.txt | grep -v '^$' | while read file; do
+              REPORT+="- \`$file\`\n"
+            done
+            REPORT+="\n**Governance Impact**: Ledger changes affect data integrity and must be carefully audited.\n\n"
+          fi
+          
+          if [ "${{ steps.analyze-changes.outputs.schema_count }}" -gt 0 ]; then
+            HAS_GOVERNANCE_CHANGES=true
+            REPORT+="#### 📋 Schema Changes (${{ steps.analyze-changes.outputs.schema_count }} file(s))\n\n"
+            REPORT+="Database schema or structure was modified:\n"
+            cat /tmp/schema_files.txt | grep -v '^$' | while read file; do
+              REPORT+="- \`$file\`\n"
+            done
+            REPORT+="\n**Governance Impact**: Schema changes may require migration coordination.\n\n"
+          fi
+          
+          if [ "${{ steps.analyze-changes.outputs.workflow_count }}" -gt 0 ]; then
+            HAS_GOVERNANCE_CHANGES=true
+            REPORT+="#### 🔧 Workflow/CI Changes (${{ steps.analyze-changes.outputs.workflow_count }} file(s))\n\n"
+            REPORT+="CI/CD workflows were modified:\n"
+            cat /tmp/workflow_files.txt | grep -v '^$' | while read file; do
+              REPORT+="- \`$file\`\n"
+            done
+            REPORT+="\n**Governance Impact**: Workflow changes affect build, test, and deployment processes.\n\n"
+          fi
+          
+          if [ "${{ steps.analyze-changes.outputs.config_count }}" -gt 0 ]; then
+            HAS_GOVERNANCE_CHANGES=true
+            REPORT+="#### ⚙️  Configuration Changes (${{ steps.analyze-changes.outputs.config_count }} file(s))\n\n"
+            REPORT+="Configuration files were modified:\n"
+            cat /tmp/config_files.txt | grep -v '^$' | while read file; do
+              REPORT+="- \`$file\`\n"
+            done
+            REPORT+="\n**Governance Impact**: Configuration changes affect application behavior.\n\n"
+          fi
+          
+          if [ "$HAS_GOVERNANCE_CHANGES" = false ]; then
+            REPORT+="✅ No critical governance-related changes detected in this merge.\n\n"
+          fi
+          
+          # Layer breakdown
+          REPORT+="### 📁 Layer Breakdown\n\n"
+          REPORT+="\`\`\`\n"
+          REPORT+="Ledger:       ${{ steps.analyze-changes.outputs.ledger_count }} file(s)\n"
+          REPORT+="API:          ${{ steps.analyze-changes.outputs.api_count }} file(s)\n"
+          REPORT+="UI:           ${{ steps.analyze-changes.outputs.ui_count }} file(s)\n"
+          REPORT+="Workflows:    ${{ steps.analyze-changes.outputs.workflow_count }} file(s)\n"
+          REPORT+="Schema:       ${{ steps.analyze-changes.outputs.schema_count }} file(s)\n"
+          REPORT+="Config:       ${{ steps.analyze-changes.outputs.config_count }} file(s)\n"
+          REPORT+="Docs:         ${{ steps.analyze-changes.outputs.doc_count }} file(s)\n"
+          REPORT+="Tests:        ${{ steps.analyze-changes.outputs.test_count }} file(s)\n"
+          REPORT+="\`\`\`\n\n"
+          
+          # Provenance trail
+          REPORT+="### 🔗 Provenance Trail\n\n"
+          REPORT+="This report establishes a governance audit trail for this merge:\n\n"
+          REPORT+="- **What was merged**: Changes summarized above\n"
+          REPORT+="- **Who merged it**: ${{ steps.merge-info.outputs.commit_author }}\n"
+          REPORT+="- **When**: ${{ steps.merge-info.outputs.commit_date }}\n"
+          REPORT+="- **Where**: \`${{ github.ref_name }}\` branch\n"
+          
+          if [ -n "${{ steps.merge-info.outputs.pr_number }}" ]; then
+            REPORT+="- **Review**: PR #${{ steps.merge-info.outputs.pr_number }}\n"
+          fi
+          
+          REPORT+="\n---\n"
+          REPORT+="*This automated report helps maintain governance awareness of changes merged to protected branches.*\n"
+          
+          # Save report
+          echo -e "$REPORT" > /tmp/provenance-report.md
+          cat /tmp/provenance-report.md
+          
+          echo "has_governance_changes=$HAS_GOVERNANCE_CHANGES" >> $GITHUB_OUTPUT
+      
+      - name: Create issue with provenance report
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('/tmp/provenance-report.md', 'utf8');
+            
+            const title = `Provenance Report: Merge to ${context.ref.replace('refs/heads/', '')} (${context.sha.substring(0, 7)})`;
+            
+            // Create an issue with the report
+            const { data: issue } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: report,
+              labels: ['provenance', 'post-merge']
+            });
+            
+            console.log(`Created provenance report issue: #${issue.number}`);
+            
+            // If this was a PR merge, comment on the PR as well
+            const prNumber = '${{ steps.merge-info.outputs.pr_number }}';
+            if (prNumber) {
+              try {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: parseInt(prNumber),
+                  body: `✅ **Merged to \`${context.ref.replace('refs/heads/', '')}\`**\n\nProvenance report: #${issue.number}\n\n${report}`
+                });
+                console.log(`Added provenance report to PR #${prNumber}`);
+              } catch (error) {
+                console.log(`Note: Could not comment on PR #${prNumber}: ${error.message}`);
+              }
+            }
+      
+      - name: Complete provenance reporting
+        run: |
+          echo "✅ Post-merge provenance report complete"
+          echo "📝 Report created as issue for audit trail"
+          if [ "${{ steps.generate-report.outputs.has_governance_changes }}" = "true" ]; then
+            echo "⚠️  Governance-relevant changes were detected and documented"
+          else
+            echo "ℹ️  No critical governance changes in this merge"
+          fi
