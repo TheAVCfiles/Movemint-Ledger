@@ -56,10 +56,14 @@ jobs:
           CHANGED_FILES=$(git diff --name-only $BASE_SHA $HEAD_SHA)
           FILE_COUNT=$(echo "$CHANGED_FILES" | wc -l)
           
-          # Get diff stats
-          STATS=$(git diff --stat $BASE_SHA $HEAD_SHA)
-          INSERTIONS=$(echo "$STATS" | tail -n 1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
-          DELETIONS=$(echo "$STATS" | tail -n 1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
+          # Get diff stats using numstat for reliable parsing
+          NUMSTAT=$(git diff --numstat $BASE_SHA $HEAD_SHA)
+          INSERTIONS=$(echo "$NUMSTAT" | awk '{sum+=$1} END {print sum}')
+          DELETIONS=$(echo "$NUMSTAT" | awk '{sum+=$2} END {print sum}')
+          
+          # Default to 0 if empty
+          INSERTIONS=${INSERTIONS:-0}
+          DELETIONS=${DELETIONS:-0}
           
           # Categorize changes
           LEDGER_FILES=$(echo "$CHANGED_FILES" | grep -E "(^|/)src/ledger/|^app/api/ledger/|^api/ledger/" || echo "")

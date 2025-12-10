@@ -70,7 +70,7 @@ jobs:
             RISK_EXPLANATION="Configuration file changes detected"
           # Documentation only = low risk
           elif echo "$CHANGED_FILES" | grep -vE "\.(md|txt|rst|adoc)$" > /dev/null; then
-            # Has non-doc files
+            # Has non-documentation files - check size
             if [ "$FILE_COUNT" -le 3 ]; then
               RISK_LEVEL="risk:low"
               RISK_EXPLANATION="Small, focused changes"
@@ -79,6 +79,7 @@ jobs:
               RISK_EXPLANATION="Moderate number of files changed"
             fi
           else
+            # All files are documentation
             RISK_LEVEL="risk:low"
             RISK_EXPLANATION="Documentation-only changes"
           fi

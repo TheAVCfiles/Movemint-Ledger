@@ -63,7 +63,8 @@ jobs:
           # Check if package.json version changed
           if echo "$CHANGED_FILES" | grep "package\.json" > /dev/null; then
             git fetch origin ${{ github.base_ref }}
-            if git diff origin/${{ github.base_ref }}...HEAD -- package.json | grep -E '^\+.*"version"' > /dev/null; then
+            # Check for both additions and removals of version field
+            if git diff origin/${{ github.base_ref }}...HEAD -- package.json | grep -E '^[-+].*"version"' > /dev/null; then
               echo "✓ Version bump detected in package.json"
               VERSION_BUMPED=true
             fi
