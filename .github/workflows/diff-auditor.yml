@@ -1,0 +1,172 @@
+name: Diff Auditor
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  audit-diff:
+    name: Architectural Summary (Non-blocking)
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Fetch base branch
+        run: |
+          git fetch origin ${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}
+      
+      - name: Analyze diff and generate architectural summary
+        id: analyze
+        run: |
+          echo "📊 Generating architectural summary for PR #${{ github.event.pull_request.number }}..."
+          
+          # Get list of changed files
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          
+          # Initialize summary
+          SUMMARY="## 🏗️ Architectural Summary\n\n"
+          SUMMARY+="**PR**: #${{ github.event.pull_request.number }}\n"
+          SUMMARY+="**Author**: @${{ github.event.pull_request.user.login }}\n"
+          SUMMARY+="**Base**: \`${{ github.base_ref }}\` → **Head**: \`${{ github.head_ref }}\`\n\n"
+          
+          # Governance touchpoint detection
+          SUMMARY+="### 🎯 Governance Touchpoints\n\n"
+          
+          LEDGER_CHANGES=$(echo "$CHANGED_FILES" | grep -E "(ledger|api/ledger)" || true)
+          WORKFLOW_CHANGES=$(echo "$CHANGED_FILES" | grep -E "\.github/workflows" || true)
+          CONFIG_CHANGES=$(echo "$CHANGED_FILES" | grep -E "(package\.json|tsconfig\.json|next\.config)" || true)
+          SCHEMA_CHANGES=$(echo "$CHANGED_FILES" | grep -E "(schema|\.sql|migration)" || true)
+          
+          if [ -n "$LEDGER_CHANGES" ]; then
+            SUMMARY+="- ⚠️  **Ledger/API Changes Detected**\n"
+            echo "$LEDGER_CHANGES" | while read file; do
+              SUMMARY+="  - \`$file\`\n"
+            done
+            SUMMARY+="  - *Governance Note*: Ledger changes require careful review for data integrity\n"
+          fi
+          
+          if [ -n "$WORKFLOW_CHANGES" ]; then
+            SUMMARY+="- 🔧 **Workflow/CI Changes Detected**\n"
+            echo "$WORKFLOW_CHANGES" | while read file; do
+              SUMMARY+="  - \`$file\`\n"
+            done
+            SUMMARY+="  - *Governance Note*: CI changes affect build and deployment processes\n"
+          fi
+          
+          if [ -n "$SCHEMA_CHANGES" ]; then
+            SUMMARY+="- 📋 **Schema Changes Detected**\n"
+            echo "$SCHEMA_CHANGES" | while read file; do
+              SUMMARY+="  - \`$file\`\n"
+            done
+            SUMMARY+="  - *Governance Note*: Schema changes may require migration planning\n"
+          fi
+          
+          if [ -n "$CONFIG_CHANGES" ]; then
+            SUMMARY+="- ⚙️  **Configuration Changes Detected**\n"
+            echo "$CONFIG_CHANGES" | while read file; do
+              SUMMARY+="  - \`$file\`\n"
+            done
+            SUMMARY+="  - *Governance Note*: Configuration changes affect application behavior\n"
+          fi
+          
+          if [ -z "$LEDGER_CHANGES" ] && [ -z "$WORKFLOW_CHANGES" ] && [ -z "$SCHEMA_CHANGES" ] && [ -z "$CONFIG_CHANGES" ]; then
+            SUMMARY+="- ✅ No critical governance touchpoints detected\n"
+          fi
+          
+          # File statistics
+          SUMMARY+="\n### 📈 Change Statistics\n\n"
+          FILE_COUNT=$(echo "$CHANGED_FILES" | wc -l)
+          SUMMARY+="- **Files Changed**: $FILE_COUNT\n"
+          
+          # Calculate additions and deletions
+          DIFF_STATS=$(git diff --shortstat origin/${{ github.base_ref }}...HEAD)
+          SUMMARY+="- **Diff Stats**: $DIFF_STATS\n"
+          
+          # Layer breakdown
+          SUMMARY+="\n### 🔍 Layer Breakdown\n\n"
+          
+          API_FILES=$(echo "$CHANGED_FILES" | grep -E "api/" | wc -l)
+          UI_FILES=$(echo "$CHANGED_FILES" | grep -E "(components|pages|app)/" | wc -l)
+          WORKFLOW_FILES=$(echo "$CHANGED_FILES" | grep -E "\.github/workflows" | wc -l)
+          DOC_FILES=$(echo "$CHANGED_FILES" | grep -E "\.(md|txt)$" | wc -l)
+          
+          SUMMARY+="- **API/Backend**: $API_FILES file(s)\n"
+          SUMMARY+="- **UI/Frontend**: $UI_FILES file(s)\n"
+          SUMMARY+="- **Workflows/CI**: $WORKFLOW_FILES file(s)\n"
+          SUMMARY+="- **Documentation**: $DOC_FILES file(s)\n"
+          
+          # Architectural recommendations
+          SUMMARY+="\n### 💡 Architectural Notes\n\n"
+          
+          if [ "$API_FILES" -gt 0 ] && [ "$UI_FILES" -gt 0 ]; then
+            SUMMARY+="- ℹ️  This PR touches both frontend and backend layers. Consider reviewing for proper separation of concerns.\n"
+          fi
+          
+          if [ -n "$LEDGER_CHANGES" ]; then
+            SUMMARY+="- ⚠️  Ledger changes detected. Ensure backward compatibility and data integrity.\n"
+          fi
+          
+          if [ "$FILE_COUNT" -gt 10 ]; then
+            SUMMARY+="- 📦 Large changeset ($FILE_COUNT files). Consider breaking into smaller PRs if possible.\n"
+          fi
+          
+          SUMMARY+="\n---\n"
+          SUMMARY+="*This is a non-blocking informational summary for governance awareness.*\n"
+          
+          # Save summary to file
+          echo -e "$SUMMARY" > /tmp/audit-summary.md
+          cat /tmp/audit-summary.md
+      
+      - name: Post summary as comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('/tmp/audit-summary.md', 'utf8');
+            
+            // Check if we already posted a comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('🏗️ Architectural Summary')
+            );
+            
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: summary
+              });
+              console.log('Updated existing architectural summary comment');
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: summary
+              });
+              console.log('Posted new architectural summary comment');
+            }
+      
+      - name: Complete audit
+        run: |
+          echo "✅ Diff audit complete - summary posted to PR"
+          echo "ℹ️  This workflow is non-blocking and informational only"
