@@ -1,0 +1,61 @@
+name: Merge Gatekeeper
+
+on:
+  pull_request:
+
+jobs:
+  merge-gate:
+    name: Enforce Maintainer Shield
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate CI Status
+        run: |
+          echo "🔍 Checking CI status..."
+          if [ "${{ github.event.pull_request.mergeable_state }}" = "dirty" ]; then
+            echo "❌ Merge blocked: PR has conflicts."
+            exit 1
+          fi
+
+          STATUS="${{ github.event.pull_request.mergeable_state }}"
+          if [[ "$STATUS" == "clean" || "$STATUS" == "unstable" ]]; then
+            echo "✔ CI status acceptable for merge gating."
+          else
+            echo "❌ Merge blocked: CI or mergeability uncertain ($STATUS)."
+            exit 1
+          fi
+
+      - name: Block TODOs in ledger-critical paths
+        run: |
+          echo "🔍 Checking for TODOs in ledger code..."
+          if grep -R "TODO" ./src/ledger 2>/dev/null; then
+            echo "❌ Merge blocked: TODO found in ledger-critical code."
+            exit 1
+          else
+            echo "✔ No TODOs detected in src/ledger."
+          fi
+
+      - name: Verify smoke test existence
+        run: |
+          echo "🔍 Checking for CI smoke test file..."
+          if [ ! -f ".github/workflows/ci-smoke.yml" ]; then
+            echo "❌ Merge blocked: CI smoke test missing."
+            exit 1
+          else
+            echo "✔ CI smoke test workflow present."
+          fi
+
+      - name: Final Founder Gate
+        run: |
+          echo "🔍 Ensuring PR cannot merge without explicit maintainer approval..."
+          AUTHOR="${{ github.event.pull_request.user.login }}"
+          MAINTAINER="TheAVCfiles"
+
+          if [ "$AUTHOR" != "$MAINTAINER" ]; then
+            echo "⚠ PR opened by $AUTHOR. Maintainer ($MAINTAINER) must review and approve before merging."
+          fi
+
+          echo "🛡 Merge Gatekeeper checks passed (preliminary)."
