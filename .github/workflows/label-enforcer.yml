@@ -8,6 +8,9 @@ jobs:
   enforce-labels:
     name: Enforce Domain Labels
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      contents: read
 
     steps:
       - name: Check for required domain labels

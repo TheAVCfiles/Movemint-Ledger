@@ -8,6 +8,9 @@ jobs:
   enforce-docs:
     name: Enforce Documentation Updates
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
 
     steps:
       - name: Checkout repository
