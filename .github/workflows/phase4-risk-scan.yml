@@ -1,0 +1,351 @@
+name: Phase 4 - Predictive Risk Scanner
+
+# Phase 4 governance: Predictive capabilities with semantic risk analysis
+# Non-blocking: Provides intelligence for better decision-making
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  risk-scan:
+    name: Semantic Risk Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Fetch PR details
+        id: pr-details
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "🔍 Gathering PR change statistics..."
+          
+          # Get PR number
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          
+          # Get changed files
+          gh pr view $PR_NUMBER --json files --jq '.files[].path' > /tmp/changed_files.txt
+          
+          FILE_COUNT=$(wc -l < /tmp/changed_files.txt)
+          echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
+          echo "📄 Files changed: $FILE_COUNT"
+          
+          # Get additions/deletions
+          ADDITIONS=$(gh pr view $PR_NUMBER --json additions --jq '.additions')
+          DELETIONS=$(gh pr view $PR_NUMBER --json deletions --jq '.deletions')
+          TOTAL_DELTA=$((ADDITIONS + DELETIONS))
+          
+          echo "additions=$ADDITIONS" >> $GITHUB_OUTPUT
+          echo "deletions=$DELETIONS" >> $GITHUB_OUTPUT
+          echo "total_delta=$TOTAL_DELTA" >> $GITHUB_OUTPUT
+          echo "➕ Lines added: $ADDITIONS"
+          echo "➖ Lines deleted: $DELETIONS"
+          echo "📊 Total delta: $TOTAL_DELTA"
+      
+      - name: Analyze file paths and detect zones
+        id: zone-analysis
+        run: |
+          echo "🗺️  Analyzing architectural zones..."
+          
+          # Initialize zone flags
+          LEDGER_ZONE=0
+          SCHEMA_ZONE=0
+          API_ZONE=0
+          UI_ZONE=0
+          CONFIG_ZONE=0
+          DOCS_ZONE=0
+          WORKFLOW_ZONE=0
+          
+          # Read changed files and detect zones
+          while IFS= read -r file; do
+            case "$file" in
+              src/ledger/*|app/api/ledger/*|api/ledger/*)
+                LEDGER_ZONE=1
+                echo "  🔴 Ledger-critical: $file"
+                ;;
+              *schema*|*Schema*)
+                SCHEMA_ZONE=1
+                echo "  🟡 Schema: $file"
+                ;;
+              app/api/*|api/*|src/api/*)
+                API_ZONE=1
+                echo "  🟠 API: $file"
+                ;;
+              app/*|src/components/*|src/pages/*|public/*)
+                UI_ZONE=1
+                echo "  🔵 UI: $file"
+                ;;
+              *.config.*|*.json|*.yml|*.yaml)
+                CONFIG_ZONE=1
+                echo "  🟣 Config: $file"
+                ;;
+              *.md|docs/*)
+                DOCS_ZONE=1
+                echo "  ⚪ Docs: $file"
+                ;;
+              .github/workflows/*)
+                WORKFLOW_ZONE=1
+                echo "  🟤 Workflow: $file"
+                ;;
+            esac
+          done < /tmp/changed_files.txt
+          
+          # Count active zones
+          ZONE_COUNT=$((LEDGER_ZONE + SCHEMA_ZONE + API_ZONE + UI_ZONE + CONFIG_ZONE + DOCS_ZONE + WORKFLOW_ZONE))
+          
+          echo "ledger_zone=$LEDGER_ZONE" >> $GITHUB_OUTPUT
+          echo "schema_zone=$SCHEMA_ZONE" >> $GITHUB_OUTPUT
+          echo "api_zone=$API_ZONE" >> $GITHUB_OUTPUT
+          echo "ui_zone=$UI_ZONE" >> $GITHUB_OUTPUT
+          echo "config_zone=$CONFIG_ZONE" >> $GITHUB_OUTPUT
+          echo "docs_zone=$DOCS_ZONE" >> $GITHUB_OUTPUT
+          echo "workflow_zone=$WORKFLOW_ZONE" >> $GITHUB_OUTPUT
+          echo "zone_count=$ZONE_COUNT" >> $GITHUB_OUTPUT
+          
+          echo ""
+          echo "📍 Active zones: $ZONE_COUNT"
+      
+      - name: Calculate risk tier
+        id: risk-tier
+        run: |
+          echo "⚖️  Calculating risk tier..."
+          
+          FILE_COUNT=${{ steps.pr-details.outputs.file_count }}
+          TOTAL_DELTA=${{ steps.pr-details.outputs.total_delta }}
+          ZONE_COUNT=${{ steps.zone-analysis.outputs.zone_count }}
+          
+          LEDGER_ZONE=${{ steps.zone-analysis.outputs.ledger_zone }}
+          SCHEMA_ZONE=${{ steps.zone-analysis.outputs.schema_zone }}
+          API_ZONE=${{ steps.zone-analysis.outputs.api_zone }}
+          
+          # Risk scoring logic
+          RISK_SCORE=0
+          RISK_TIER="low"
+          RISK_EMOJI="🟢"
+          
+          # Ledger changes are automatically high risk
+          if [ "$LEDGER_ZONE" = "1" ]; then
+            RISK_SCORE=$((RISK_SCORE + 50))
+          fi
+          
+          # Schema changes are high risk
+          if [ "$SCHEMA_ZONE" = "1" ]; then
+            RISK_SCORE=$((RISK_SCORE + 30))
+          fi
+          
+          # API changes are medium risk
+          if [ "$API_ZONE" = "1" ]; then
+            RISK_SCORE=$((RISK_SCORE + 20))
+          fi
+          
+          # Multi-zone changes increase risk (architecture hotspot)
+          if [ "$ZONE_COUNT" -ge 3 ]; then
+            RISK_SCORE=$((RISK_SCORE + 25))
+            echo "⚠️  Architecture hotspot detected: crossing $ZONE_COUNT zones"
+          fi
+          
+          # Large PRs increase risk
+          if [ "$FILE_COUNT" -ge 10 ]; then
+            RISK_SCORE=$((RISK_SCORE + 15))
+          fi
+          
+          if [ "$TOTAL_DELTA" -ge 500 ]; then
+            RISK_SCORE=$((RISK_SCORE + 15))
+          fi
+          
+          # Determine tier based on score
+          if [ "$RISK_SCORE" -ge 50 ]; then
+            RISK_TIER="high"
+            RISK_EMOJI="🔴"
+          elif [ "$RISK_SCORE" -ge 25 ]; then
+            RISK_TIER="medium"
+            RISK_EMOJI="🟡"
+          fi
+          
+          echo "risk_score=$RISK_SCORE" >> $GITHUB_OUTPUT
+          echo "risk_tier=$RISK_TIER" >> $GITHUB_OUTPUT
+          echo "risk_emoji=$RISK_EMOJI" >> $GITHUB_OUTPUT
+          
+          echo ""
+          echo "$RISK_EMOJI Risk Score: $RISK_SCORE"
+          echo "$RISK_EMOJI Risk Tier: $RISK_TIER"
+      
+      - name: Detect architecture hotspots
+        id: hotspots
+        run: |
+          echo "🔥 Detecting architecture hotspots..."
+          
+          LEDGER_ZONE=${{ steps.zone-analysis.outputs.ledger_zone }}
+          SCHEMA_ZONE=${{ steps.zone-analysis.outputs.schema_zone }}
+          API_ZONE=${{ steps.zone-analysis.outputs.api_zone }}
+          UI_ZONE=${{ steps.zone-analysis.outputs.ui_zone }}
+          ZONE_COUNT=${{ steps.zone-analysis.outputs.zone_count }}
+          
+          HOTSPOT_DETECTED=0
+          HOTSPOT_MESSAGE=""
+          
+          # Detect critical hotspot patterns
+          if [ "$LEDGER_ZONE" = "1" ] && [ "$SCHEMA_ZONE" = "1" ]; then
+            HOTSPOT_DETECTED=1
+            HOTSPOT_MESSAGE="🔥 **CRITICAL HOTSPOT**: Ledger + Schema changes detected. This affects data contracts and persistence."
+          elif [ "$LEDGER_ZONE" = "1" ] && [ "$UI_ZONE" = "1" ]; then
+            HOTSPOT_DETECTED=1
+            HOTSPOT_MESSAGE="🔥 **CRITICAL HOTSPOT**: Ledger + UI changes detected. This spans backend and frontend concerns."
+          elif [ "$SCHEMA_ZONE" = "1" ] && [ "$API_ZONE" = "1" ] && [ "$UI_ZONE" = "1" ]; then
+            HOTSPOT_DETECTED=1
+            HOTSPOT_MESSAGE="🔥 **ARCHITECTURE HOTSPOT**: Schema + API + UI changes detected. This is a full-stack change affecting multiple layers."
+          elif [ "$ZONE_COUNT" -ge 4 ]; then
+            HOTSPOT_DETECTED=1
+            HOTSPOT_MESSAGE="🔥 **ARCHITECTURE HOTSPOT**: Changes span $ZONE_COUNT zones. Consider splitting into smaller, focused PRs."
+          fi
+          
+          echo "hotspot_detected=$HOTSPOT_DETECTED" >> $GITHUB_OUTPUT
+          echo "hotspot_message=$HOTSPOT_MESSAGE" >> $GITHUB_OUTPUT
+          
+          if [ "$HOTSPOT_DETECTED" = "1" ]; then
+            echo "$HOTSPOT_MESSAGE"
+          else
+            echo "✅ No architecture hotspots detected"
+          fi
+      
+      - name: Generate risk report
+        id: report
+        run: |
+          echo "📝 Generating risk assessment report..."
+          
+          RISK_TIER=${{ steps.risk-tier.outputs.risk_tier }}
+          RISK_EMOJI=${{ steps.risk-tier.outputs.risk_emoji }}
+          RISK_SCORE=${{ steps.risk-tier.outputs.risk_score }}
+          
+          FILE_COUNT=${{ steps.pr-details.outputs.file_count }}
+          ADDITIONS=${{ steps.pr-details.outputs.additions }}
+          DELETIONS=${{ steps.pr-details.outputs.deletions }}
+          TOTAL_DELTA=${{ steps.pr-details.outputs.total_delta }}
+          
+          ZONE_COUNT=${{ steps.zone-analysis.outputs.zone_count }}
+          LEDGER_ZONE=${{ steps.zone-analysis.outputs.ledger_zone }}
+          SCHEMA_ZONE=${{ steps.zone-analysis.outputs.schema_zone }}
+          API_ZONE=${{ steps.zone-analysis.outputs.api_zone }}
+          UI_ZONE=${{ steps.zone-analysis.outputs.ui_zone }}
+          CONFIG_ZONE=${{ steps.zone-analysis.outputs.config_zone }}
+          DOCS_ZONE=${{ steps.zone-analysis.outputs.docs_zone }}
+          WORKFLOW_ZONE=${{ steps.zone-analysis.outputs.workflow_zone }}
+          
+          HOTSPOT_DETECTED=${{ steps.hotspots.outputs.hotspot_detected }}
+          HOTSPOT_MESSAGE="${{ steps.hotspots.outputs.hotspot_message }}"
+          
+          # Build zone badges
+          ZONE_BADGES=""
+          [ "$LEDGER_ZONE" = "1" ] && ZONE_BADGES="${ZONE_BADGES}\`Ledger\` "
+          [ "$SCHEMA_ZONE" = "1" ] && ZONE_BADGES="${ZONE_BADGES}\`Schema\` "
+          [ "$API_ZONE" = "1" ] && ZONE_BADGES="${ZONE_BADGES}\`API\` "
+          [ "$UI_ZONE" = "1" ] && ZONE_BADGES="${ZONE_BADGES}\`UI\` "
+          [ "$CONFIG_ZONE" = "1" ] && ZONE_BADGES="${ZONE_BADGES}\`Config\` "
+          [ "$DOCS_ZONE" = "1" ] && ZONE_BADGES="${ZONE_BADGES}\`Docs\` "
+          [ "$WORKFLOW_ZONE" = "1" ] && ZONE_BADGES="${ZONE_BADGES}\`Workflow\` "
+          
+          # Start building the report
+          cat > /tmp/risk_report.md << EOF
+          ## 🎯 Phase 4 Risk Assessment
+          
+          ### Risk Tier: ${RISK_EMOJI} **${RISK_TIER}** (score: ${RISK_SCORE})
+          
+          ### 📊 Change Statistics
+          $(echo "- **Files Changed**: ${FILE_COUNT}")
+          $(echo "- **Lines Added**: +${ADDITIONS}")
+          $(echo "- **Lines Deleted**: -${DELETIONS}")
+          $(echo "- **Total Delta**: ${TOTAL_DELTA} lines")
+          
+          ### 🗺️ Architectural Zones Affected
+          ${ZONE_BADGES}
+          
+          **Active Zones**: ${ZONE_COUNT}
+          EOF
+          
+          # Add hotspot section if detected
+          if [ "$HOTSPOT_DETECTED" = "1" ]; then
+            cat >> /tmp/risk_report.md << EOF
+          
+          ### 🔥 Architecture Hotspot Analysis
+          ${HOTSPOT_MESSAGE}
+          EOF
+          fi
+          
+          # Add recommendations section
+          cat >> /tmp/risk_report.md << 'EOF'
+          
+          ### 💡 Recommendations
+          EOF
+          
+          # Build recommendations
+          if [ "$RISK_TIER" = "high" ]; then
+            echo "$(echo '- 🔍 Request thorough code review from maintainers')" >> /tmp/risk_report.md
+            echo "$(echo '- 🧪 Ensure comprehensive test coverage')" >> /tmp/risk_report.md
+            echo "$(echo '- 📚 Update documentation for any API/schema changes')" >> /tmp/risk_report.md
+          fi
+          
+          if [ "$LEDGER_ZONE" = "1" ]; then
+            echo "$(echo '- 🛡️ Founder approval required for ledger-critical changes')" >> /tmp/risk_report.md
+          fi
+          
+          if [ "$HOTSPOT_DETECTED" = "1" ]; then
+            echo "$(echo '- 🔀 Consider splitting into smaller, focused PRs')" >> /tmp/risk_report.md
+            echo "$(echo '- 🧩 Review architectural boundaries and separation of concerns')" >> /tmp/risk_report.md
+          fi
+          
+          if [ "$FILE_COUNT" -ge 15 ]; then
+            echo "$(echo "- 📦 Large PR detected (${FILE_COUNT} files) - ensure changes are cohesive")" >> /tmp/risk_report.md
+          fi
+          
+          # Add footer
+          cat >> /tmp/risk_report.md << 'EOF'
+          
+          ---
+          *🤖 Automated by Phase 4 Predictive Risk Scanner - Non-blocking intelligence for better decisions*
+          EOF
+          
+          cat /tmp/risk_report.md
+      
+      - name: Post sticky PR comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "💬 Posting risk assessment to PR..."
+          
+          PR_NUMBER=${{ steps.pr-details.outputs.pr_number }}
+          
+          # Find existing comment
+          COMMENT_ID=$(gh api \
+            "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" \
+            --jq '.[] | select(.body | contains("Phase 4 Risk Assessment")) | .id' \
+            | head -n1)
+          
+          if [ -n "$COMMENT_ID" ]; then
+            echo "📝 Updating existing comment $COMMENT_ID"
+            gh api \
+              --method PATCH \
+              "repos/${{ github.repository }}/issues/comments/$COMMENT_ID" \
+              -f body="$(cat /tmp/risk_report.md)"
+          else
+            echo "✨ Creating new comment"
+            gh pr comment $PR_NUMBER --body-file /tmp/risk_report.md
+          fi
+          
+          echo "✅ Risk assessment posted successfully"
+      
+      - name: Summary
+        run: |
+          echo "## 🎯 Phase 4 Risk Scan Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat /tmp/risk_report.md >> $GITHUB_STEP_SUMMARY
