@@ -17,7 +17,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
           cache: npm
 
       - name: Install dependencies
@@ -40,5 +40,15 @@ jobs:
 
       - name: Smoke test ledger endpoint
         run: |
-          curl --fail http://localhost:3000/api/ledger \
-            || (echo "Smoke test failed" && exit 1)
+          echo "Testing /api/ledger endpoint..."
+          HTTP_STATUS=$(curl -s -o /tmp/response.txt -w "%{http_code}" http://localhost:3000/api/ledger)
+          echo "HTTP Status: $HTTP_STATUS"
+          echo "Response body:"
+          cat /tmp/response.txt
+          if [[ "$HTTP_STATUS" =~ ^2[0-9][0-9]$ ]]; then
+            echo "✓ Smoke test passed - /api/ledger returned 2xx status"
+            exit 0
+          else
+            echo "✗ Smoke test failed - /api/ledger returned non-2xx status: $HTTP_STATUS"
+            exit 1
+          fi
