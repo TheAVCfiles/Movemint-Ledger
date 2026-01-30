@@ -1,0 +1,145 @@
+name: Ledger Replay Telemetry (Phase 4.2)
+
+# Phase 4.2: Predictive Health Monitoring via Replay Telemetry
+# Non-blocking advisory workflow that measures ledger replay performance
+# and provides health insights for maintainers
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  ledger-telemetry:
+    name: Measure Ledger Replay Performance
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Start application in background
+        run: |
+          npm run start &
+          echo "Waiting for application to boot..."
+          sleep 20
+
+      - name: Replay Ledger Endpoint and Capture Telemetry
+        id: replay
+        run: |
+          echo "🔍 Measuring ledger replay performance..."
+
+          # Capture start time in milliseconds
+          START_TIME=$(date +%s%3N)
+
+          # Execute ledger replay and capture response
+          RESPONSE=$(curl -s http://localhost:3000/api/ledger)
+          CURL_EXIT=$?
+
+          # Capture end time in milliseconds
+          END_TIME=$(date +%s%3N)
+
+          # Calculate replay duration
+          DURATION=$((END_TIME - START_TIME))
+
+          if [ $CURL_EXIT -ne 0 ]; then
+            echo "❌ Failed to query ledger endpoint"
+            echo "duration=0" >> $GITHUB_OUTPUT
+            echo "entry_count=0" >> $GITHUB_OUTPUT
+            echo "health_status=❌ FAILED" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          # Calculate ledger entry count using jq
+          ENTRY_COUNT=$(echo "$RESPONSE" | jq -r '.entries | length' 2>/dev/null || echo "0")
+
+          # Save response to file for artifact upload
+          echo "$RESPONSE" > /tmp/ledger-replay-output.json
+
+          # Output telemetry data
+          echo "duration=$DURATION" >> $GITHUB_OUTPUT
+          echo "entry_count=$ENTRY_COUNT" >> $GITHUB_OUTPUT
+
+          # Evaluate health status based on soft thresholds
+          WARNINGS=""
+          HEALTH_STATUS="✅ HEALTHY"
+
+          # Threshold: Replay duration exceeds 200ms
+          if [ "$DURATION" -gt 200 ]; then
+            WARNINGS="${WARNINGS}⚠️ Replay duration (${DURATION}ms) exceeds advisory threshold of 200ms\n"
+            HEALTH_STATUS="⚠️ ADVISORY"
+          fi
+
+          # Threshold: Ledger entry count exceeds 1000 entries
+          if [ "$ENTRY_COUNT" -gt 1000 ]; then
+            WARNINGS="${WARNINGS}⚠️ Entry count (${ENTRY_COUNT}) exceeds advisory threshold of 1000 entries\n"
+            HEALTH_STATUS="⚠️ ADVISORY"
+          fi
+
+          echo "health_status=$HEALTH_STATUS" >> $GITHUB_OUTPUT
+          echo "warnings<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$WARNINGS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          echo "📊 Telemetry captured:"
+          echo "  - Duration: ${DURATION}ms"
+          echo "  - Entry Count: $ENTRY_COUNT"
+          echo "  - Health Status: $HEALTH_STATUS"
+
+          if [ -n "$WARNINGS" ]; then
+            echo ""
+            echo "⚠️ Advisory Warnings:"
+            echo -e "$WARNINGS"
+          fi
+
+      - name: Upload Telemetry Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ledger-telemetry-replay-${{ github.event.pull_request.number }}
+          path: /tmp/ledger-replay-output.json
+          retention-days: 30
+
+      - name: Post Telemetry Summary to PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: ledger-telemetry
+          message: |
+            ## 📊 Ledger Replay Telemetry (Phase 4.2)
+
+            **Predictive Health Monitoring Results**
+
+            | Metric | Value | Threshold | Status |
+            |--------|-------|-----------|--------|
+            | Replay Duration | ${{ steps.replay.outputs.duration }}ms | 200ms | See Health Status |
+            | Entry Count | ${{ steps.replay.outputs.entry_count }} | 1000 entries | See Health Status |
+            | **Overall Health** | | | **${{ steps.replay.outputs.health_status }}** |
+
+            ${{ steps.replay.outputs.warnings != '' && format('### ⚠️ Advisory Warnings\n\n{0}\n\n', steps.replay.outputs.warnings) || '' }}
+            ### 📋 Telemetry Notes
+
+            - **Non-blocking advisory**: This telemetry provides health insights and does not block merging
+            - **Soft thresholds**: Values exceeding thresholds indicate potential performance degradation
+            - **Artifact available**: Full replay output saved for detailed analysis
+            - **Phase integration**: Data feeds into Phase 3 oversight (Diff Auditor, Drift Detector, Provenance Reporter)
+            - **Future scope**: Telemetry will be utilized by v4.3 Risk Engine for predictive analysis
+
+            ---
+
+            *Telemetry captured at: ${{ github.event.pull_request.head.sha }}*
+            *Phase 4.2 Governance: See `docs/governance-phase-4.md` for details*
+
