@@ -1,0 +1,54 @@
+name: Label Enforcer
+
+on:
+  pull_request:
+    types: [opened, synchronize, labeled, unlabeled]
+
+jobs:
+  enforce-labels:
+    name: Enforce Domain Labels
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      contents: read
+
+    steps:
+      - name: Check for required domain labels
+        run: |
+          echo "🔍 Checking for required domain labels..."
+
+          # Get PR labels from GitHub API
+          LABELS=$(gh api /repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }} --jq '.labels[]?.name // empty' | tr '\n' ' ')
+
+          echo "Current labels: $LABELS"
+
+          # Required domain labels
+          REQUIRED_DOMAINS=("ledger" "api" "ci" "docs")
+          HAS_LABEL=false
+
+          # Check if at least one domain label is present
+          for label in $LABELS; do
+            for domain in "${REQUIRED_DOMAINS[@]}"; do
+              if [[ "$label" == "$domain" ]]; then
+                HAS_LABEL=true
+                echo "✔ Found domain label: $label"
+                break 2
+              fi
+            done
+          done
+
+          if [ "$HAS_LABEL" = false ]; then
+            echo "❌ Label enforcement failed: PR must have at least one domain label."
+            echo "Required labels: ledger, api, ci, or docs"
+            echo ""
+            echo "Please add an appropriate domain label to this PR:"
+            echo "  - 'ledger' for ledger-related changes"
+            echo "  - 'api' for API changes"
+            echo "  - 'ci' for CI/workflow changes"
+            echo "  - 'docs' for documentation changes"
+            exit 1
+          fi
+
+          echo "🛡 Label enforcement passed."
+        env:
+          GH_TOKEN: ${{ github.token }}
